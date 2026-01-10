@@ -14,7 +14,7 @@ CONF_NUM_SERVICES: Final = "num_services"
 CONF_NIGHT_UPDATES: Final = "night_updates"
 
 # API Configuration
-API_BASE_URL: Final = "https://api1.raildata.org.uk/1010-live-departure-board-dep/LDBWS/api/20220120"
+API_BASE_URL: Final = "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
 API_TIMEOUT: Final = 30
 
 # Default values

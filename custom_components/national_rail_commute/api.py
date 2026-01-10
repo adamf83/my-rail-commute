@@ -188,15 +188,16 @@ class NationalRailAPI:
             num_rows,
         )
 
+        # Use path parameters for the CRS code and query parameters for filters
+        endpoint = f"GetDepBoardWithDetails/{origin_crs.upper()}"
         params = {
-            "from": origin_crs.upper(),
-            "to": destination_crs.upper(),
+            "filterCrs": destination_crs.upper(),
             "timeWindow": time_window,
             "numRows": num_rows,
         }
 
         try:
-            data = await self._request("GetDepBoardWithDetails", params)
+            data = await self._request(endpoint, params)
             return self._parse_departure_board(data)
         except InvalidStationError:
             raise
@@ -348,11 +349,11 @@ class NationalRailAPI:
 
         try:
             # Try to get a simple departure board with minimal rows
+            endpoint = f"GetDepartureBoard/{crs_code.upper()}"
             params = {
-                "crs": crs_code.upper(),
                 "numRows": 1,
             }
-            data = await self._request("GetDepartureBoard", params)
+            data = await self._request(endpoint, params)
 
             # Extract station name from response
             board = data.get("GetStationBoardResult", data)
@@ -385,11 +386,11 @@ class NationalRailAPI:
         try:
             # Make a simple request to validate credentials
             # Use a common station code for testing
+            endpoint = "GetDepartureBoard/PAD"  # London Paddington
             params = {
-                "crs": "PAD",  # London Paddington
                 "numRows": 1,
             }
-            await self._request("GetDepartureBoard", params)
+            await self._request(endpoint, params)
             _LOGGER.debug("API key validated successfully")
             return True
 
