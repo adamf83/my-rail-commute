@@ -1,0 +1,54 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "National Rail API Authentication",
+        "description": "Enter your Rail Data Marketplace API key. You can register for free at {signup_url}",
+        "data": {
+          "api_key": "API Key"
+        }
+      },
+      "stations": {
+        "title": "Configure Route",
+        "description": "Enter the origin and destination station codes (3-letter CRS codes, e.g., PAD for Paddington).",
+        "data": {
+          "origin": "Origin Station (CRS Code)",
+          "destination": "Destination Station (CRS Code)"
+        }
+      },
+      "settings": {
+        "title": "Commute Settings",
+        "description": "Configure settings for your commute from {origin} to {destination}.",
+        "data": {
+          "commute_name": "Commute Name",
+          "time_window": "Time Window (minutes)",
+          "num_services": "Number of Services to Track",
+          "night_updates": "Enable Night-Time Updates"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Authentication failed. Please check your API key.",
+      "cannot_connect": "Unable to connect to National Rail API. Please try again later.",
+      "invalid_station": "Invalid station code. Please use a valid 3-letter CRS code.",
+      "same_station": "Origin and destination stations must be different.",
+      "unknown": "An unexpected error occurred. Please try again."
+    },
+    "abort": {
+      "already_configured": "This route is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Update Commute Settings",
+        "description": "Modify your commute tracking settings.",
+        "data": {
+          "time_window": "Time Window (minutes)",
+          "num_services": "Number of Services to Track",
+          "night_updates": "Enable Night-Time Updates"
+        }
+      }
+    }
+  }
+}

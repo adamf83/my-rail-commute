@@ -1,0 +1,10 @@
+{
+  "name": "National Rail Commute",
+  "render_readme": true,
+  "domains": [
+    "sensor",
+    "binary_sensor"
+  ],
+  "homeassistant": "2024.1.0",
+  "iot_class": "cloud_polling"
+}
