@@ -74,11 +74,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=update_interval,
         )
 
-    def _get_update_interval(self) -> timedelta | None:
+    def _get_update_interval(self) -> timedelta:
         """Get update interval based on current time.
 
         Returns:
-            Update interval timedelta, or None to pause automatic updates
+            Update interval timedelta
         """
         now = datetime.now()
         current_hour = now.hour
@@ -87,9 +87,10 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         night_start, night_end = NIGHT_HOURS
         if night_start <= current_hour or current_hour < night_end:
             if not self.night_updates_enabled:
-                # Pause automatic updates during night, but manual refreshes still work
-                _LOGGER.debug("Pausing automatic updates during night time (manual refresh still works)")
-                return None
+                # Use a very long interval to effectively pause automatic updates
+                # Manual refreshes will still work
+                _LOGGER.debug("Using long interval during night time (manual refresh still works)")
+                return timedelta(hours=24)
             return UPDATE_INTERVAL_NIGHT
 
         # Check if in peak hours
