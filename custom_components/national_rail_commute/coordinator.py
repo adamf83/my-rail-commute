@@ -74,11 +74,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=update_interval,
         )
 
-    def _get_update_interval(self) -> timedelta:
+    def _get_update_interval(self) -> timedelta | None:
         """Get update interval based on current time.
 
         Returns:
-            Update interval timedelta
+            Update interval timedelta, or None to pause automatic updates
         """
         now = datetime.now()
         current_hour = now.hour
@@ -87,8 +87,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         night_start, night_end = NIGHT_HOURS
         if night_start <= current_hour or current_hour < night_end:
             if not self.night_updates_enabled:
-                # Disable updates during night
-                return UPDATE_INTERVAL_NIGHT
+                # Pause automatic updates during night, but manual refreshes still work
+                _LOGGER.debug("Pausing automatic updates during night time (manual refresh still works)")
+                return None
             return UPDATE_INTERVAL_NIGHT
 
         # Check if in peak hours
@@ -99,26 +100,6 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         # Off-peak hours
         return UPDATE_INTERVAL_OFF_PEAK
 
-    def _should_skip_update(self) -> bool:
-        """Check if update should be skipped based on time.
-
-        Returns:
-            True if update should be skipped
-        """
-        if self.night_updates_enabled:
-            return False
-
-        now = datetime.now()
-        current_hour = now.hour
-
-        # Check if in night time
-        night_start, night_end = NIGHT_HOURS
-        if night_start <= current_hour or current_hour < night_end:
-            _LOGGER.debug("Skipping update during night time")
-            return True
-
-        return False
-
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from National Rail API.
 
@@ -128,14 +109,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         Raises:
             UpdateFailed: If update fails
         """
-        # Check if we should skip this update
-        if self._should_skip_update():
-            # Return last known data if available
-            if self.data:
-                return self.data
-            return {}
-
-        # Update interval may have changed
+        # Update interval may have changed (e.g., switching between peak/off-peak/night)
         new_interval = self._get_update_interval()
         if new_interval != self.update_interval:
             _LOGGER.debug("Updating interval from %s to %s", self.update_interval, new_interval)
