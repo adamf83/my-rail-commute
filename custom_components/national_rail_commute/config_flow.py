@@ -303,7 +303,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
-    ) -> NationalRailCommuteOptionsFlow:
+    ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler.
 
         Args:
@@ -312,7 +312,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Returns:
             Options flow handler
         """
-        return NationalRailCommuteOptionsFlow(config_entry)
+        return NationalRailCommuteOptionsFlow()
 
 
 class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
