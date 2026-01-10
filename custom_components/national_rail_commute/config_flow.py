@@ -132,6 +132,16 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Returns:
             FlowResult for next step or errors
         """
+        # Check if we already have an existing config entry with an API key
+        existing_entries = self._async_current_entries()
+        if existing_entries:
+            # Reuse API key from existing entry
+            existing_api_key = existing_entries[0].data.get(CONF_API_KEY)
+            if existing_api_key:
+                _LOGGER.debug("Reusing API key from existing integration")
+                self._api_key = existing_api_key
+                return await self.async_step_stations()
+
         errors: dict[str, str] = {}
 
         if user_input is not None:

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "National Rail API Authentication",
-        "description": "Enter your Rail Data Marketplace API key. You can register for free at {signup_url}",
+        "description": "Enter your Rail Data Marketplace API key. You can register for free at {signup_url}\n\nNote: If you already have a commute configured, this step will be skipped automatically.",
         "data": {
           "api_key": "API Key"
         }
