@@ -56,8 +56,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         # Get configuration
         self.origin = config[CONF_ORIGIN]
         self.destination = config[CONF_DESTINATION]
-        self.time_window = config[CONF_TIME_WINDOW]
-        self.num_services = config[CONF_NUM_SERVICES]
+        self.time_window = int(config[CONF_TIME_WINDOW])
+        self.num_services = int(config[CONF_NUM_SERVICES])
         self.night_updates_enabled = config.get(CONF_NIGHT_UPDATES, False)
 
         # Station names (will be populated on first update)
