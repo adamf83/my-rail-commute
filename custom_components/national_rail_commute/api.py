@@ -91,6 +91,14 @@ class NationalRailAPI:
                 async with self._session.get(
                     url, headers=self._headers, params=params
                 ) as response:
+                    # Log the full request details for debugging
+                    _LOGGER.debug(
+                        "API request: %s %s (status: %s)",
+                        "GET",
+                        url,
+                        response.status,
+                    )
+
                     # Handle different status codes
                     if response.status == 401 or response.status == 403:
                         _LOGGER.error("Authentication failed with status %s", response.status)
@@ -111,8 +119,28 @@ class NationalRailAPI:
                         raise RateLimitError(ERROR_RATE_LIMIT)
 
                     if response.status == 404:
+                        _LOGGER.error("Station not found (404) for endpoint: %s", endpoint)
                         raise InvalidStationError(ERROR_INVALID_STATION)
 
+                    # Handle server errors (500+) with retry
+                    if response.status >= 500:
+                        if retry_count < max_retries:
+                            wait_time = 2 ** retry_count
+                            _LOGGER.warning(
+                                "Server error %s, retrying in %s seconds (attempt %s/%s)",
+                                response.status,
+                                wait_time,
+                                retry_count + 1,
+                                max_retries,
+                            )
+                            await asyncio.sleep(wait_time)
+                            return await self._request(
+                                endpoint, params, retry_count + 1, max_retries
+                            )
+                        _LOGGER.error("API server error %s after %s retries", response.status, max_retries)
+                        raise NationalRailAPIError(f"API server error {response.status}: {ERROR_API_UNAVAILABLE}")
+
+                    # Check for other non-success status codes
                     response.raise_for_status()
 
                     data = await response.json()
@@ -122,7 +150,10 @@ class NationalRailAPI:
             if retry_count < max_retries:
                 wait_time = 2 ** retry_count
                 _LOGGER.warning(
-                    "Request timeout, retrying in %s seconds", wait_time
+                    "Request timeout, retrying in %s seconds (attempt %s/%s)",
+                    wait_time,
+                    retry_count + 1,
+                    max_retries,
                 )
                 await asyncio.sleep(wait_time)
                 return await self._request(
@@ -132,20 +163,9 @@ class NationalRailAPI:
             raise NationalRailAPIError(ERROR_NETWORK) from err
 
         except ClientResponseError as err:
-            if err.status >= 500 and retry_count < max_retries:
-                # Server error, retry
-                wait_time = 2 ** retry_count
-                _LOGGER.warning(
-                    "Server error %s, retrying in %s seconds",
-                    err.status,
-                    wait_time,
-                )
-                await asyncio.sleep(wait_time)
-                return await self._request(
-                    endpoint, params, retry_count + 1, max_retries
-                )
-            _LOGGER.error("API request failed with status %s", err.status)
-            raise NationalRailAPIError(ERROR_API_UNAVAILABLE) from err
+            # This should rarely be hit now since we handle status codes explicitly
+            _LOGGER.error("Unhandled HTTP error %s: %s", err.status, err.message)
+            raise NationalRailAPIError(f"HTTP error {err.status}: {ERROR_API_UNAVAILABLE}") from err
 
         except ClientError as err:
             if retry_count < max_retries:

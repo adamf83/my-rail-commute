@@ -36,36 +36,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
     _LOGGER.debug("Setting up National Rail Commute integration")
 
-    # Get configuration (merge data and options)
-    config = {**entry.data, **entry.options}
+    try:
+        # Get configuration (merge data and options)
+        config = {**entry.data, **entry.options}
 
-    # Create API client
-    session = async_get_clientsession(hass)
-    api = NationalRailAPI(config[CONF_API_KEY], session)
+        _LOGGER.debug(
+            "Config for setup: origin=%s, destination=%s, time_window=%s, num_services=%s",
+            config.get(CONF_ORIGIN),
+            config.get(CONF_DESTINATION),
+            config.get(CONF_TIME_WINDOW),
+            config.get(CONF_NUM_SERVICES),
+        )
 
-    # Create coordinator
-    coordinator = NationalRailDataUpdateCoordinator(
-        hass,
-        api,
-        config,
-    )
+        # Create API client
+        session = async_get_clientsession(hass)
+        api = NationalRailAPI(config[CONF_API_KEY], session)
 
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
+        # Create coordinator
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass,
+            api,
+            config,
+        )
 
-    # Store coordinator
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = coordinator
+        # Fetch initial data
+        _LOGGER.debug("Fetching initial data for %s -> %s", config[CONF_ORIGIN], config[CONF_DESTINATION])
+        await coordinator.async_config_entry_first_refresh()
 
-    # Set up platforms
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Store coordinator
+        hass.data.setdefault(DOMAIN, {})
+        hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # Register update listener for options changes
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+        # Set up platforms
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    _LOGGER.debug("National Rail Commute integration setup complete")
+        # Register update listener for options changes
+        entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
-    return True
+        _LOGGER.debug("National Rail Commute integration setup complete")
+
+        return True
+
+    except Exception as err:
+        _LOGGER.error("Error setting up National Rail Commute: %s", err, exc_info=True)
+        raise
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
