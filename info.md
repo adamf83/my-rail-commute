@@ -1,4 +1,4 @@
-# National Rail Commute
+# My Rail Commute
 
 A custom Home Assistant integration that tracks regular commutes using National Rail real-time data from the Darwin API. Monitor train services, get disruption alerts, and automate your commuting routine.
 
@@ -45,7 +45,7 @@ Examples:
 
 1. Go to **Settings** → **Devices & Services**
 2. Click **+ Add Integration**
-3. Search for "National Rail Commute"
+3. Search for "My Rail Commute"
 4. Follow the configuration steps:
    - Enter your Rail Data Marketplace API key
    - Enter origin and destination station CRS codes
@@ -61,4 +61,4 @@ The integration automatically adjusts update frequency:
 
 ## Support
 
-For issues, questions, or feature requests, please visit the [GitHub repository](https://github.com/adamf83/national-rail-commute).
+For issues, questions, or feature requests, please visit the [GitHub repository](https://github.com/adamf83/my-rail-commute).

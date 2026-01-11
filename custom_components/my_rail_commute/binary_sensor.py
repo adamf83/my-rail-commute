@@ -1,4 +1,4 @@
-"""Binary sensor platform for National Rail Commute integration."""
+"""Binary sensor platform for My Rail Commute integration."""
 from __future__ import annotations
 
 import logging
@@ -34,7 +34,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up National Rail Commute binary sensor platform.
+    """Set up My Rail Commute binary sensor platform.
 
     Args:
         hass: Home Assistant instance
@@ -54,7 +54,7 @@ async def async_setup_entry(
 class NationalRailCommuteBinarySensor(
     CoordinatorEntity[NationalRailDataUpdateCoordinator], BinarySensorEntity
 ):
-    """Base binary sensor for National Rail Commute."""
+    """Base binary sensor for My Rail Commute."""
 
     def __init__(
         self,
@@ -73,7 +73,7 @@ class NationalRailCommuteBinarySensor(
         self._attr_has_entity_name = True
 
         # Create device info
-        commute_name = entry.data.get(CONF_COMMUTE_NAME, "National Rail Commute")
+        commute_name = entry.data.get(CONF_COMMUTE_NAME, "My Rail Commute")
         origin = coordinator.origin
         destination = coordinator.destination
 

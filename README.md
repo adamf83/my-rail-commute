@@ -1,8 +1,8 @@
-# National Rail Commute - Home Assistant Integration
+# My Rail Commute - Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/adamf83/national-rail-commute.svg)](https://github.com/adamf83/national-rail-commute/releases)
-[![License](https://img.shields.io/github/license/adamf83/national-rail-commute.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/adamf83/my-rail-commute.svg)](https://github.com/adamf83/my-rail-commute/releases)
+[![License](https://img.shields.io/github/license/adamf83/my-rail-commute.svg)](LICENSE)
 
 A custom Home Assistant integration that tracks regular commutes using National Rail real-time data from the Darwin API. Monitor train services, get disruption alerts, and automate your commuting routine.
 
@@ -66,17 +66,17 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 2. Click on "Integrations"
 3. Click the three dots in the top right corner
 4. Select "Custom repositories"
-5. Add `https://github.com/adamf83/national-rail-commute` as repository
+5. Add `https://github.com/adamf83/my-rail-commute` as repository
 6. Select "Integration" as category
 7. Click "Add"
-8. Find "National Rail Commute" in the integration list
+8. Find "My Rail Commute" in the integration list
 9. Click "Download"
 10. Restart Home Assistant
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub](https://github.com/adamf83/national-rail-commute/releases)
-2. Extract the `custom_components/national_rail_commute` directory
+1. Download the latest release from [GitHub](https://github.com/adamf83/my-rail-commute/releases)
+2. Extract the `custom_components/my_rail_commute` directory
 3. Copy it to your Home Assistant `custom_components` directory
 4. Restart Home Assistant
 
@@ -86,7 +86,7 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 
 1. Go to **Settings** → **Devices & Services**
 2. Click **+ Add Integration**
-3. Search for "National Rail Commute"
+3. Search for "My Rail Commute"
 4. Follow the configuration steps:
 
 #### Step 1: API Authentication
@@ -107,7 +107,7 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 ### Modifying Settings
 
 1. Go to **Settings** → **Devices & Services**
-2. Find your National Rail Commute integration
+2. Find your My Rail Commute integration
 3. Click **Configure**
 4. Adjust your settings (time window, number of services, night updates)
 
@@ -266,7 +266,7 @@ cards:
 
 1. Ensure you've restarted Home Assistant after installation
 2. Check the logs for any errors: **Settings** → **System** → **Logs**
-3. Verify the `custom_components/national_rail_commute` directory exists
+3. Verify the `custom_components/my_rail_commute` directory exists
 
 ### Authentication Errors
 
@@ -317,8 +317,8 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for det
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/adamf83/national-rail-commute/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/adamf83/national-rail-commute/discussions)
+- **Issues**: [GitHub Issues](https://github.com/adamf83/my-rail-commute/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/adamf83/my-rail-commute/discussions)
 - **Home Assistant Community**: [Community Forum Thread](https://community.home-assistant.io/)
 
 ## License

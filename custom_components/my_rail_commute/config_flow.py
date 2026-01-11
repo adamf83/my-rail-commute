@@ -1,4 +1,4 @@
-"""Config flow for National Rail Commute integration."""
+"""Config flow for My Rail Commute integration."""
 from __future__ import annotations
 
 import logging
@@ -109,7 +109,7 @@ async def validate_stations(
 
 
 class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for National Rail Commute."""
+    """Handle a config flow for My Rail Commute."""
 
     VERSION = 1
 
@@ -326,7 +326,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow for National Rail Commute."""
+    """Handle options flow for My Rail Commute."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

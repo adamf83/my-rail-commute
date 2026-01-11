@@ -1,4 +1,4 @@
-"""Data update coordinator for National Rail Commute integration."""
+"""Data update coordinator for My Rail Commute integration."""
 from __future__ import annotations
 
 import logging
@@ -33,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching National Rail data."""
+    """Class to manage fetching Rail data."""
 
     def __init__(
         self,
@@ -45,7 +45,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         Args:
             hass: Home Assistant instance
-            api: National Rail API client
+            api: Rail API client
             config: Configuration dictionary
         """
         self.api = api
@@ -102,7 +102,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         return UPDATE_INTERVAL_OFF_PEAK
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from National Rail API.
+        """Fetch data from Rail API.
 
         Returns:
             Parsed data dictionary

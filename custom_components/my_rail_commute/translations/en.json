@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "National Rail API Authentication",
+        "title": "My Rail Commute - API Authentication",
         "description": "Enter your Rail Data Marketplace API key. You can register for free at {signup_url}\n\nNote: If you already have a commute configured, this step will be skipped automatically.",
         "data": {
           "api_key": "API Key"
@@ -29,7 +29,7 @@
     },
     "error": {
       "invalid_auth": "Authentication failed. Please check your API key.",
-      "cannot_connect": "Unable to connect to National Rail API. Please try again later.",
+      "cannot_connect": "Unable to connect to Rail API. Please try again later.",
       "invalid_station": "Invalid station code. Please use a valid 3-letter CRS code.",
       "same_station": "Origin and destination stations must be different.",
       "unknown": "An unexpected error occurred. Please try again."
