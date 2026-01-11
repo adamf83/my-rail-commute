@@ -1,8 +1,8 @@
 # National Rail Commute - Home Assistant Integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/adamf83/hacommute.svg)](https://github.com/adamf83/hacommute/releases)
-[![License](https://img.shields.io/github/license/adamf83/hacommute.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/adamf83/national-rail-commute.svg)](https://github.com/adamf83/national-rail-commute/releases)
+[![License](https://img.shields.io/github/license/adamf83/national-rail-commute.svg)](LICENSE)
 
 A custom Home Assistant integration that tracks regular commutes using National Rail real-time data from the Darwin API. Monitor train services, get disruption alerts, and automate your commuting routine.
 
@@ -66,7 +66,7 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 2. Click on "Integrations"
 3. Click the three dots in the top right corner
 4. Select "Custom repositories"
-5. Add `https://github.com/adamf83/hacommute` as repository
+5. Add `https://github.com/adamf83/national-rail-commute` as repository
 6. Select "Integration" as category
 7. Click "Add"
 8. Find "National Rail Commute" in the integration list
@@ -75,7 +75,7 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub](https://github.com/adamf83/hacommute/releases)
+1. Download the latest release from [GitHub](https://github.com/adamf83/national-rail-commute/releases)
 2. Extract the `custom_components/national_rail_commute` directory
 3. Copy it to your Home Assistant `custom_components` directory
 4. Restart Home Assistant
@@ -317,8 +317,8 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for det
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/adamf83/hacommute/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/adamf83/hacommute/discussions)
+- **Issues**: [GitHub Issues](https://github.com/adamf83/national-rail-commute/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/adamf83/national-rail-commute/discussions)
 - **Home Assistant Community**: [Community Forum Thread](https://community.home-assistant.io/)
 
 ## License

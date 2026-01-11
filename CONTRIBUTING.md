@@ -11,7 +11,7 @@ By participating in this project, you agree to maintain a respectful and collabo
 ### Reporting Bugs
 
 Before creating a bug report:
-1. Check the [existing issues](https://github.com/adamf83/hacommute/issues) to avoid duplicates
+1. Check the [existing issues](https://github.com/adamf83/national-rail-commute/issues) to avoid duplicates
 2. Verify you're running the latest version of the integration
 3. Review the [README troubleshooting section](README.md#troubleshooting)
 
@@ -54,8 +54,8 @@ Feature requests are welcome! Please:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/adamf83/hacommute.git
-   cd hacommute
+   git clone https://github.com/adamf83/national-rail-commute.git
+   cd national-rail-commute
    ```
 
 2. Create a virtual environment:
@@ -278,7 +278,7 @@ This project follows [Semantic Versioning](https://semver.org/):
 ## Questions?
 
 If you have questions about contributing:
-- Open a [GitHub Discussion](https://github.com/adamf83/hacommute/discussions)
+- Open a [GitHub Discussion](https://github.com/adamf83/national-rail-commute/discussions)
 - Check existing issues and PRs
 - Review this document and the README
 
