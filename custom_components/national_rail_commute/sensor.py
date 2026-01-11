@@ -37,6 +37,7 @@ from .const import (
     ATTR_TIME_WINDOW,
     ATTR_TOTAL_SERVICES,
     CONF_COMMUTE_NAME,
+    CONF_NUM_SERVICES,
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
@@ -58,11 +59,18 @@ async def async_setup_entry(
     """
     coordinator: NationalRailDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
+    # Get number of trains to track from configuration (data or options)
+    config = {**entry.data, **entry.options}
+    num_trains = int(config.get(CONF_NUM_SERVICES, 3))
+
     # Create sensors
     entities: list[SensorEntity] = [
         CommuteSummarySensor(coordinator, entry),
-        NextTrainSensor(coordinator, entry),
     ]
+
+    # Create individual train sensors dynamically based on configuration
+    for train_number in range(1, num_trains + 1):
+        entities.append(TrainSensor(coordinator, entry, train_number))
 
     async_add_entities(entities)
 
@@ -116,8 +124,7 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
         """
         super().__init__(coordinator, entry)
 
-        commute_name = entry.data.get(CONF_COMMUTE_NAME, "Commute")
-        self._attr_name = "Commute Summary"
+        self._attr_name = "Summary"
         self._attr_unique_id = f"{entry.entry_id}_summary"
         self._attr_icon = "mdi:train"
 
@@ -138,12 +145,39 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
         """Return additional state attributes.
 
         Returns:
-            Dictionary of attributes
+            Dictionary of attributes including all_trains for custom cards
         """
         if not self.coordinator.data:
             return {}
 
         data = self.coordinator.data
+        services = data.get("services", [])
+
+        # Build all_trains attribute with complete train data for custom cards
+        all_trains = []
+        for idx, service in enumerate(services, start=1):
+            train_data = {
+                "train_number": idx,
+                "scheduled_departure": service.get("scheduled_departure"),
+                "expected_departure": service.get("expected_departure"),
+                "platform": service.get("platform") or "TBA",
+                "operator": service.get("operator"),
+                "service_id": service.get("service_id"),
+                "status": service.get("status"),
+                "delay_minutes": service.get("delay_minutes", 0),
+                "is_cancelled": service.get("is_cancelled", False),
+                "calling_points": service.get("calling_points", []),
+                "estimated_arrival": service.get("estimated_arrival"),
+                "scheduled_arrival": service.get("scheduled_arrival"),
+            }
+
+            # Add optional fields if present
+            if service.get("cancellation_reason"):
+                train_data["cancellation_reason"] = service.get("cancellation_reason")
+            if service.get("delay_reason"):
+                train_data["delay_reason"] = service.get("delay_reason")
+
+            all_trains.append(train_data)
 
         return {
             ATTR_ORIGIN: data.get("origin"),
@@ -151,6 +185,7 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_DESTINATION: data.get("destination"),
             ATTR_DESTINATION_NAME: data.get("destination_name"),
             ATTR_TIME_WINDOW: data.get("time_window"),
+            "services_requested": self.coordinator.num_services,
             ATTR_SERVICES_TRACKED: data.get("services_tracked"),
             ATTR_TOTAL_SERVICES: data.get("total_services_found"),
             ATTR_ON_TIME_COUNT: data.get("on_time_count"),
@@ -158,57 +193,94 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_CANCELLED_COUNT: data.get("cancelled_count"),
             "last_updated": data.get("last_updated"),
             "next_update": data.get("next_update"),
+            "all_trains": all_trains,  # Complete train data for custom cards
         }
 
 
-class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
-    """Sensor for next train information."""
+class TrainSensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor for individual train information."""
 
     def __init__(
         self,
         coordinator: NationalRailDataUpdateCoordinator,
         entry: ConfigEntry,
+        train_number: int,
     ) -> None:
-        """Initialize the next train sensor.
+        """Initialize the train sensor.
 
         Args:
             coordinator: Data coordinator
             entry: Config entry
+            train_number: Position in departure list (1 = next train)
         """
         super().__init__(coordinator, entry)
 
-        self._attr_name = "Next Train"
-        self._attr_unique_id = f"{entry.entry_id}_next_train"
-        self._attr_icon = "mdi:train-car"
+        self._train_number = train_number
+        self._attr_name = f"Train {train_number}"
+        self._attr_unique_id = f"{entry.entry_id}_train_{train_number}"
+
+        # Icon based on train number (next train gets special icon)
+        if train_number == 1:
+            self._attr_icon = "mdi:train-car"
+        else:
+            self._attr_icon = "mdi:train"
 
     @property
     def native_value(self) -> str | None:
         """Return the state of the sensor.
 
         Returns:
-            Departure time or status text
+            Departure time, status text, or "No service"
         """
         if not self.coordinator.data:
             return None
 
-        next_train = self.coordinator.data.get("next_train")
+        services = self.coordinator.data.get("services", [])
 
-        if not next_train:
-            return "No trains found"
+        # Check if this train exists in the service list
+        if len(services) < self._train_number:
+            return "No service"
+
+        train = services[self._train_number - 1]
 
         # Return appropriate state based on status
-        if next_train.get("is_cancelled"):
+        if train.get("is_cancelled"):
             return "Cancelled"
 
-        expected = next_train.get("expected_departure")
-        scheduled = next_train.get("scheduled_departure")
+        expected = train.get("expected_departure")
+        scheduled = train.get("scheduled_departure")
 
-        if expected and expected != scheduled:
-            delay = next_train.get("delay_minutes", 0)
-            if delay > 0:
-                return f"Delayed {delay} mins"
+        # Return expected time (which includes delays)
+        return expected or scheduled
 
-        return scheduled
+    @property
+    def icon(self) -> str:
+        """Return icon based on train status.
+
+        Returns:
+            Icon string
+        """
+        if not self.coordinator.data:
+            return "mdi:train"
+
+        services = self.coordinator.data.get("services", [])
+
+        if len(services) < self._train_number:
+            return "mdi:train"
+
+        train = services[self._train_number - 1]
+
+        # Dynamic icon based on status
+        if train.get("is_cancelled"):
+            return "mdi:alert-circle"
+
+        delay_minutes = train.get("delay_minutes", 0)
+        if delay_minutes > 10:
+            return "mdi:clock-alert"
+        elif delay_minutes > 0:
+            return "mdi:train-variant"
+
+        return "mdi:train"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -218,35 +290,77 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             Dictionary of attributes
         """
         if not self.coordinator.data:
-            return {}
-
-        next_train = self.coordinator.data.get("next_train")
-
-        if not next_train:
             return {
-                "status": "no_trains",
+                "train_number": self._train_number,
+                "status": "unavailable",
             }
+
+        services = self.coordinator.data.get("services", [])
+
+        # If this train doesn't exist, return minimal attributes
+        if len(services) < self._train_number:
+            return {
+                "train_number": self._train_number,
+                "total_trains": len(services),
+                "status": "no_service",
+            }
+
+        train = services[self._train_number - 1]
 
         # Build comprehensive attributes
         attributes = {
-            ATTR_SCHEDULED_DEPARTURE: next_train.get("scheduled_departure"),
-            ATTR_EXPECTED_DEPARTURE: next_train.get("expected_departure"),
-            ATTR_PLATFORM: next_train.get("platform") or "TBA",
-            ATTR_OPERATOR: next_train.get("operator"),
-            ATTR_SERVICE_ID: next_train.get("service_id"),
-            ATTR_CALLING_POINTS: next_train.get("calling_points", []),
-            ATTR_DELAY_MINUTES: next_train.get("delay_minutes", 0),
-            ATTR_STATUS: next_train.get("status"),
-            ATTR_IS_CANCELLED: next_train.get("is_cancelled", False),
-            ATTR_SCHEDULED_ARRIVAL: next_train.get("scheduled_arrival"),
-            ATTR_ESTIMATED_ARRIVAL: next_train.get("estimated_arrival"),
+            "train_number": self._train_number,
+            "total_trains": len(services),
+            ATTR_SCHEDULED_DEPARTURE: train.get("scheduled_departure"),
+            ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
+            "departure_status": self._get_departure_status(train),
+            ATTR_PLATFORM: train.get("platform") or "TBA",
+            "platform_changed": False,  # TODO: Detect platform changes if API provides this
+            ATTR_OPERATOR: train.get("operator"),
+            ATTR_SERVICE_ID: train.get("service_id"),
+            ATTR_STATUS: train.get("status"),
+            ATTR_DELAY_MINUTES: train.get("delay_minutes", 0),
+            ATTR_IS_CANCELLED: train.get("is_cancelled", False),
+            ATTR_CALLING_POINTS: train.get("calling_points", []),
+            ATTR_SCHEDULED_ARRIVAL: train.get("scheduled_arrival"),
+            ATTR_ESTIMATED_ARRIVAL: train.get("estimated_arrival"),
+            "last_updated": self.coordinator.data.get("last_updated"),
         }
 
         # Add cancellation reason if cancelled
-        if next_train.get("is_cancelled"):
-            attributes[ATTR_CANCELLATION_REASON] = next_train.get("cancellation_reason")
+        if train.get("is_cancelled"):
+            attributes[ATTR_CANCELLATION_REASON] = train.get("cancellation_reason")
+            attributes[ATTR_DELAY_REASON] = None
         # Add delay reason if delayed
-        elif next_train.get("delay_minutes", 0) > 0:
-            attributes[ATTR_DELAY_REASON] = next_train.get("delay_reason")
+        elif train.get("delay_minutes", 0) > 0:
+            attributes[ATTR_DELAY_REASON] = train.get("delay_reason")
+            attributes[ATTR_CANCELLATION_REASON] = None
+        else:
+            attributes[ATTR_CANCELLATION_REASON] = None
+            attributes[ATTR_DELAY_REASON] = None
 
         return attributes
+
+    def _get_departure_status(self, train: dict[str, Any]) -> str:
+        """Get human-readable departure status.
+
+        Args:
+            train: Train data dictionary
+
+        Returns:
+            Status string like "On Time", "Delayed", "Cancelled"
+        """
+        if train.get("is_cancelled"):
+            return "Cancelled"
+
+        delay_minutes = train.get("delay_minutes", 0)
+        if delay_minutes > 0:
+            return "Delayed"
+
+        expected = train.get("expected_departure")
+        scheduled = train.get("scheduled_departure")
+
+        if expected and expected != scheduled:
+            return "Expected"
+
+        return "On Time"
