@@ -87,10 +87,10 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         night_start, night_end = NIGHT_HOURS
         if night_start <= current_hour or current_hour < night_end:
             if not self.night_updates_enabled:
-                # Use a very long interval to effectively pause automatic updates
-                # Manual refreshes will still work
-                _LOGGER.debug("Using long interval during night time (manual refresh still works)")
-                return timedelta(hours=24)
+                # Use a moderate interval so coordinator can reschedule when morning comes
+                # This ensures manual refresh works and automatic updates resume at dawn
+                _LOGGER.debug("Using longer interval during night time (manual refresh still works)")
+                return timedelta(hours=1)
             return UPDATE_INTERVAL_NIGHT
 
         # Check if in peak hours
@@ -152,9 +152,23 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             if self._failed_updates >= self._max_failed_updates:
                 raise UpdateFailed(f"Failed to fetch data: {err}") from err
 
-            # Otherwise, return last known data if available
+            # Check if cached data is too old (more than 2 hours)
+            if self.data and self.data.get("last_updated"):
+                try:
+                    last_updated = datetime.fromisoformat(self.data["last_updated"])
+                    age = datetime.now() - last_updated
+                    if age > timedelta(hours=2):
+                        _LOGGER.warning(
+                            "Cached data is too old (%s hours), not returning stale data",
+                            age.total_seconds() / 3600
+                        )
+                        raise UpdateFailed(f"Failed to fetch data and cached data too old: {err}") from err
+                except (ValueError, TypeError):
+                    pass
+
+            # Otherwise, return last known data if available and recent
             if self.data:
-                _LOGGER.warning("Using last known data after failed update")
+                _LOGGER.warning("Using last known data after failed update (data age: recent)")
                 return self.data
 
             raise UpdateFailed(f"Failed to fetch data: {err}") from err
