@@ -1,4 +1,4 @@
-"""Sensor platform for National Rail Commute integration."""
+"""Sensor platform for My Rail Commute integration."""
 from __future__ import annotations
 
 import logging
@@ -50,7 +50,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up National Rail Commute sensor platform.
+    """Set up My Rail Commute sensor platform.
 
     Args:
         hass: Home Assistant instance
@@ -77,7 +77,7 @@ async def async_setup_entry(
 
 
 class NationalRailCommuteEntity(CoordinatorEntity[NationalRailDataUpdateCoordinator]):
-    """Base entity for National Rail Commute sensors."""
+    """Base entity for My Rail Commute sensors."""
 
     def __init__(
         self,
@@ -96,7 +96,7 @@ class NationalRailCommuteEntity(CoordinatorEntity[NationalRailDataUpdateCoordina
         self._attr_has_entity_name = True
 
         # Create device info
-        commute_name = entry.data.get(CONF_COMMUTE_NAME, "National Rail Commute")
+        commute_name = entry.data.get(CONF_COMMUTE_NAME, "My Rail Commute")
         origin = coordinator.origin
         destination = coordinator.destination
 

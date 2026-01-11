@@ -1,9 +1,9 @@
-"""Constants for the National Rail Commute integration."""
+"""Constants for the My Rail Commute integration."""
 from datetime import timedelta
 from typing import Final
 
 # Integration domain
-DOMAIN: Final = "national_rail_commute"
+DOMAIN: Final = "my_rail_commute"
 
 # Configuration keys
 CONF_ORIGIN: Final = "origin"
@@ -21,7 +21,7 @@ API_TIMEOUT: Final = 30
 DEFAULT_TIME_WINDOW: Final = 60
 DEFAULT_NUM_SERVICES: Final = 3
 DEFAULT_NIGHT_UPDATES: Final = False
-DEFAULT_NAME: Final = "National Rail Commute"
+DEFAULT_NAME: Final = "My Rail Commute"
 
 # Limits
 MIN_TIME_WINDOW: Final = 15
@@ -86,9 +86,9 @@ ATTR_DISRUPTION_REASONS: Final = "disruption_reasons"
 ERROR_AUTH: Final = "Authentication failed. Please check your API key."
 ERROR_INVALID_STATION: Final = "Invalid station code. Please use a valid 3-letter CRS code."
 ERROR_NO_SERVICES: Final = "No services found for this route."
-ERROR_API_UNAVAILABLE: Final = "National Rail API is currently unavailable."
+ERROR_API_UNAVAILABLE: Final = "Rail API is currently unavailable."
 ERROR_RATE_LIMIT: Final = "API rate limit exceeded. Retrying later."
-ERROR_NETWORK: Final = "Network error occurred while contacting National Rail API."
+ERROR_NETWORK: Final = "Network error occurred while contacting Rail API."
 
 # User Agent
 USER_AGENT: Final = f"{DOMAIN}/1.0.0"

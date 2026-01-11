@@ -1,6 +1,6 @@
-# Contributing to National Rail Commute Integration
+# Contributing to My Rail Commute Integration
 
-Thank you for your interest in contributing to the National Rail Commute integration for Home Assistant! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to the My Rail Commute integration for Home Assistant! This document provides guidelines and information for contributors.
 
 ## Code of Conduct
 
@@ -11,7 +11,7 @@ By participating in this project, you agree to maintain a respectful and collabo
 ### Reporting Bugs
 
 Before creating a bug report:
-1. Check the [existing issues](https://github.com/adamf83/national-rail-commute/issues) to avoid duplicates
+1. Check the [existing issues](https://github.com/adamf83/my-rail-commute/issues) to avoid duplicates
 2. Verify you're running the latest version of the integration
 3. Review the [README troubleshooting section](README.md#troubleshooting)
 
@@ -54,8 +54,8 @@ Feature requests are welcome! Please:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/adamf83/national-rail-commute.git
-   cd national-rail-commute
+   git clone https://github.com/adamf83/my-rail-commute.git
+   cd my-rail-commute
    ```
 
 2. Create a virtual environment:
@@ -76,7 +76,7 @@ Feature requests are welcome! Please:
 
 5. Symlink the integration:
    ```bash
-   ln -s $(pwd)/custom_components/national_rail_commute config/custom_components/national_rail_commute
+   ln -s $(pwd)/custom_components/my_rail_commute config/custom_components/my_rail_commute
    ```
 
 6. Run Home Assistant:
@@ -101,7 +101,7 @@ Enable debug logging in `configuration.yaml`:
 logger:
   default: info
   logs:
-    custom_components.national_rail_commute: debug
+    custom_components.my_rail_commute: debug
 ```
 
 ## Code Style Guidelines
@@ -278,7 +278,7 @@ This project follows [Semantic Versioning](https://semver.org/):
 ## Questions?
 
 If you have questions about contributing:
-- Open a [GitHub Discussion](https://github.com/adamf83/national-rail-commute/discussions)
+- Open a [GitHub Discussion](https://github.com/adamf83/my-rail-commute/discussions)
 - Check existing issues and PRs
 - Review this document and the README
 
@@ -288,4 +288,4 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ---
 
-Thank you for contributing to National Rail Commute! Your efforts help make this integration better for everyone.
+Thank you for contributing to My Rail Commute! Your efforts help make this integration better for everyone.

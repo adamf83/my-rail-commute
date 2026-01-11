@@ -1,0 +1,17 @@
+{
+  "domain": "my_rail_commute",
+  "name": "My Rail Commute",
+  "codeowners": [
+    "@adamf83"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/adamf83/my-rail-commute",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/adamf83/my-rail-commute/issues",
+  "requirements": [
+    "aiohttp>=3.9.0"
+  ],
+  "version": "1.0.0"
+}

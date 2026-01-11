@@ -1,4 +1,4 @@
-"""The National Rail Commute integration."""
+"""The My Rail Commute integration."""
 from __future__ import annotations
 
 import logging
@@ -25,7 +25,7 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up National Rail Commute from a config entry.
+    """Set up My Rail Commute from a config entry.
 
     Args:
         hass: Home Assistant instance
@@ -34,7 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     Returns:
         True if setup was successful
     """
-    _LOGGER.debug("Setting up National Rail Commute integration")
+    _LOGGER.debug("Setting up My Rail Commute integration")
 
     try:
         # Get configuration (merge data and options)
@@ -73,12 +73,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Register update listener for options changes
         entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
-        _LOGGER.debug("National Rail Commute integration setup complete")
+        _LOGGER.debug("My Rail Commute integration setup complete")
 
         return True
 
     except Exception as err:
-        _LOGGER.error("Error setting up National Rail Commute: %s", err, exc_info=True)
+        _LOGGER.error("Error setting up My Rail Commute: %s", err, exc_info=True)
         raise
 
 
@@ -92,7 +92,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     Returns:
         True if unload was successful
     """
-    _LOGGER.debug("Unloading National Rail Commute integration")
+    _LOGGER.debug("Unloading My Rail Commute integration")
 
     # Unload platforms
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
@@ -108,7 +108,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         hass: Home Assistant instance
         entry: Config entry
     """
-    _LOGGER.debug("Reloading National Rail Commute integration")
+    _LOGGER.debug("Reloading My Rail Commute integration")
     await hass.config_entries.async_reload(entry.entry_id)
 
 

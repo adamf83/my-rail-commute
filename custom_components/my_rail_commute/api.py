@@ -1,4 +1,4 @@
-"""National Rail API client for Live Departure Boards."""
+"""Rail API client for Live Departure Boards."""
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class NationalRailAPIError(Exception):
-    """Base exception for National Rail API errors."""
+    """Base exception for Rail API errors."""
 
 
 class AuthenticationError(NationalRailAPIError):
@@ -43,7 +43,7 @@ class RateLimitError(NationalRailAPIError):
 
 
 class NationalRailAPI:
-    """National Rail API client for Live Departure Boards."""
+    """Rail API client for Live Departure Boards."""
 
     def __init__(self, api_key: str, session: aiohttp.ClientSession) -> None:
         """Initialize the API client.
