@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import aiohttp
@@ -292,8 +292,15 @@ class NationalRailAPI:
                 # Try to parse delay from etd if it's a time
                 if ":" in etd and ":" in std:
                     try:
-                        std_time = datetime.strptime(std, "%H:%M")
-                        etd_time = datetime.strptime(etd, "%H:%M")
+                        # Use a reference date to parse times and handle midnight crossing
+                        std_time = datetime.strptime(f"2000-01-01 {std}", "%Y-%m-%d %H:%M")
+                        etd_time = datetime.strptime(f"2000-01-01 {etd}", "%Y-%m-%d %H:%M")
+
+                        # Handle midnight crossing: if expected time is earlier than scheduled,
+                        # it means the train departs/arrives the next day
+                        if etd_time < std_time:
+                            etd_time += timedelta(days=1)
+
                         delay_minutes = int((etd_time - std_time).total_seconds() / 60)
                     except ValueError:
                         pass

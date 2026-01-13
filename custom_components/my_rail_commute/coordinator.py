@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import NationalRailAPI, NationalRailAPIError
 from .const import (
@@ -80,7 +81,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         Returns:
             Update interval timedelta
         """
-        now = datetime.now()
+        now = dt_util.now()
         current_hour = now.hour
 
         # Check if in night time
@@ -155,14 +156,15 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             # Check if cached data is too old (more than 2 hours)
             if self.data and self.data.get("last_updated"):
                 try:
-                    last_updated = datetime.fromisoformat(self.data["last_updated"])
-                    age = datetime.now() - last_updated
-                    if age > timedelta(hours=2):
-                        _LOGGER.warning(
-                            "Cached data is too old (%s hours), not returning stale data",
-                            age.total_seconds() / 3600
-                        )
-                        raise UpdateFailed(f"Failed to fetch data and cached data too old: {err}") from err
+                    last_updated = dt_util.parse_datetime(self.data["last_updated"])
+                    if last_updated:
+                        age = dt_util.now() - last_updated
+                        if age > timedelta(hours=2):
+                            _LOGGER.warning(
+                                "Cached data is too old (%s hours), not returning stale data",
+                                age.total_seconds() / 3600
+                            )
+                            raise UpdateFailed(f"Failed to fetch data and cached data too old: {err}") from err
                 except (ValueError, TypeError):
                     pass
 
@@ -226,8 +228,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "next_train": next_train,
             "disruption": disruption_data,
             "summary": summary,
-            "last_updated": datetime.now().isoformat(),
-            "next_update": (datetime.now() + self.update_interval).isoformat(),
+            "last_updated": dt_util.now().isoformat(),
+            "next_update": (dt_util.now() + self.update_interval).isoformat(),
             "nrcc_messages": data.get("nrcc_messages", []),
         }
 
