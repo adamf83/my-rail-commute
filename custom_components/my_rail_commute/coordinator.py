@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -175,6 +175,74 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
             raise UpdateFailed(f"Failed to fetch data: {err}") from err
 
+    def _filter_departed_trains(self, services: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Filter out trains that have already departed.
+
+        Args:
+            services: List of service data
+
+        Returns:
+            Filtered list containing only trains that haven't departed yet
+        """
+        if not services:
+            return services
+
+        now = dt_util.now()
+        current_time_str = now.strftime("%H:%M")
+        filtered_services = []
+
+        for service in services:
+            # Skip cancelled trains - they should be shown regardless of time
+            if service.get("is_cancelled", False):
+                filtered_services.append(service)
+                continue
+
+            # Get departure time (prefer expected, fallback to scheduled)
+            departure_time = service.get("expected_departure") or service.get("scheduled_departure")
+
+            if not departure_time or ":" not in departure_time:
+                # If we can't parse the time, keep the service
+                filtered_services.append(service)
+                continue
+
+            try:
+                # Parse current time and departure time using a reference date
+                current_dt = datetime.strptime(f"2000-01-01 {current_time_str}", "%Y-%m-%d %H:%M")
+                departure_dt = datetime.strptime(f"2000-01-01 {departure_time}", "%Y-%m-%d %H:%M")
+
+                # Calculate time difference
+                time_diff_seconds = (departure_dt - current_dt).total_seconds()
+
+                # Handle midnight crossing: if difference > 12 hours in either direction,
+                # adjust for day boundary
+                if time_diff_seconds < -12 * 3600:
+                    # Departure is much earlier in the day, so it's actually tomorrow
+                    departure_dt += timedelta(days=1)
+                    time_diff_seconds = (departure_dt - current_dt).total_seconds()
+                elif time_diff_seconds > 12 * 3600:
+                    # Departure is much later in the day, so it's actually yesterday
+                    departure_dt -= timedelta(days=1)
+                    time_diff_seconds = (departure_dt - current_dt).total_seconds()
+
+                # Keep the train if it hasn't departed yet
+                # Add a 2-minute grace period to account for update delays
+                if time_diff_seconds >= -120:  # -2 minutes
+                    filtered_services.append(service)
+                else:
+                    _LOGGER.debug(
+                        "Filtering out departed train: scheduled %s, expected %s, current time %s",
+                        service.get("scheduled_departure"),
+                        service.get("expected_departure"),
+                        current_time_str,
+                    )
+
+            except (ValueError, TypeError) as err:
+                # If we can't parse the time, keep the service to be safe
+                _LOGGER.debug("Could not parse departure time for filtering: %s", err)
+                filtered_services.append(service)
+
+        return filtered_services
+
     def _parse_data(self, data: dict[str, Any]) -> dict[str, Any]:
         """Parse and enrich API data.
 
@@ -188,6 +256,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Limit to configured number of services
         services = services[: self.num_services]
+
+        # Filter out trains that have already departed
+        services = self._filter_departed_trains(services)
 
         # Calculate statistics
         on_time_count = sum(
