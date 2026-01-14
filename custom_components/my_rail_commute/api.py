@@ -296,10 +296,16 @@ class NationalRailAPI:
                         std_time = datetime.strptime(f"2000-01-01 {std}", "%Y-%m-%d %H:%M")
                         etd_time = datetime.strptime(f"2000-01-01 {etd}", "%Y-%m-%d %H:%M")
 
-                        # Handle midnight crossing: if expected time is earlier than scheduled,
-                        # it means the train departs/arrives the next day
-                        if etd_time < std_time:
+                        # Calculate initial time difference
+                        time_diff_seconds = (etd_time - std_time).total_seconds()
+
+                        # Handle midnight crossing: if absolute difference > 12 hours, adjust for day boundary
+                        if time_diff_seconds < -12 * 3600:
+                            # ETD is much earlier in the day, so it's actually next day
                             etd_time += timedelta(days=1)
+                        elif time_diff_seconds > 12 * 3600:
+                            # ETD is much later in the day, so it's actually previous day
+                            etd_time -= timedelta(days=1)
 
                         delay_minutes = int((etd_time - std_time).total_seconds() / 60)
                     except ValueError:
