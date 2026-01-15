@@ -15,6 +15,7 @@ A custom Home Assistant integration that tracks regular commutes using National 
 - **Multi-Route Support**: Configure multiple commutes (e.g., morning and evening journeys)
 - **UI Configuration**: Easy setup through Home Assistant's config flow interface
 - **HACS Compatible**: Simple installation via Home Assistant Community Store
+- **Custom Lovelace Card**: Beautiful, dedicated dashboard card for displaying train information
 
 ## Sensors
 
@@ -217,9 +218,29 @@ automation:
             {% endif %}
 ```
 
-### Dashboard Card Example
+## Lovelace Card
 
-Create a comprehensive commute card:
+For a better user experience, we've created a dedicated custom Lovelace card specifically designed to display your rail commute information beautifully.
+
+### Installation
+
+The custom Lovelace card is available in a separate repository and can be installed via HACS:
+
+1. Open HACS in Home Assistant
+2. Go to "Frontend"
+3. Click the three dots in the top right corner
+4. Select "Custom repositories"
+5. Add `https://github.com/adamf83/lovelace-my-rail-commute-card` as repository
+6. Select "Lovelace" as category
+7. Click "Add"
+8. Find "My Rail Commute Card" in the list
+9. Click "Download"
+
+For more information, documentation, and manual installation instructions, visit the [Lovelace My Rail Commute Card repository](https://github.com/adamf83/lovelace-my-rail-commute-card).
+
+### Dashboard Card Example (Using Standard Cards)
+
+Alternatively, you can create a commute card using standard Home Assistant cards:
 
 ```yaml
 type: vertical-stack
