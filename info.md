@@ -10,6 +10,7 @@ A custom Home Assistant integration that tracks regular commutes using National 
 - **Rich Sensor Data**: Comprehensive attributes including platforms, delays, calling points, and more
 - **Multi-Route Support**: Configure multiple commutes (e.g., morning and evening journeys)
 - **UI Configuration**: Easy setup through Home Assistant's config flow interface
+- **Custom Lovelace Card**: Dedicated dashboard card available at [lovelace-my-rail-commute-card](https://github.com/adamf83/lovelace-my-rail-commute-card)
 
 ## Sensors
 
