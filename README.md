@@ -19,23 +19,76 @@ A custom Home Assistant integration that tracks regular commutes using National 
 
 ## Sensors
 
-The integration creates three sensors for each configured commute:
+The integration creates multiple sensors for each configured commute:
 
 ### 1. Commute Summary Sensor
-- **Entity ID**: `sensor.{commute_name}_commute_summary`
+- **Entity ID**: `sensor.{commute_name}_summary`
 - **State**: Summary of overall commute status (e.g., "3 trains on time", "2 trains delayed")
-- **Attributes**: Origin/destination names, service counts, on-time/delayed/cancelled counts
+- **Attributes**:
+  - Origin/destination names and CRS codes
+  - Service counts (requested, tracked, total found)
+  - On-time/delayed/cancelled counts
+  - Time window setting
+  - `all_trains`: Complete array of all tracked trains (useful for custom Lovelace cards)
+  - Last updated and next update timestamps
 
 ### 2. Next Train Sensor
 - **Entity ID**: `sensor.{commute_name}_next_train`
-- **State**: Departure time or status (e.g., "14:45", "Delayed 10 mins", "Cancelled")
-- **Attributes**: Platform, operator, calling points, delay reasons, arrival times, and more
+- **State**: Departure time or status (e.g., "14:45", "Cancelled", "No service")
+- **Icon**: Dynamic based on train status
+  - `mdi:train-car` - Normal service
+  - `mdi:train-variant` - Minor delay (1-10 minutes)
+  - `mdi:clock-alert` - Significant delay (>10 minutes)
+  - `mdi:alert-circle` - Cancelled
+- **Attributes**:
+  - `train_number`: Always 1 (next train)
+  - `total_trains`: Total number of trains being tracked
+  - `scheduled_departure`: Original scheduled departure time (HH:MM)
+  - `expected_departure`: Expected departure time including delays (HH:MM)
+  - `departure_status`: Human-readable status ("On Time", "Delayed", "Cancelled", "Expected")
+  - `platform`: Platform number or "TBA"
+  - `operator`: Train operating company
+  - `service_id`: Unique service identifier
+  - `status`: Internal status code
+  - `delay_minutes`: Number of minutes delayed (0 if on time)
+  - `is_cancelled`: Boolean indicating cancellation
+  - `calling_points`: List of stops the train will make
+  - `scheduled_arrival`: Original scheduled arrival time (HH:MM)
+  - `estimated_arrival`: Expected arrival time including delays (HH:MM)
+  - `cancellation_reason`: Reason if cancelled
+  - `delay_reason`: Reason if delayed
+  - `last_updated`: Timestamp of last data update
 
-### 3. Severe Disruption Binary Sensor
+### 3. Individual Train Sensors
+- **Entity IDs**: `sensor.{commute_name}_train_1`, `sensor.{commute_name}_train_2`, etc.
+- **Count**: Created dynamically based on your "Number of Services" configuration (1-10)
+- **State**: Departure time or status (e.g., "14:45", "Cancelled", "No service")
+- **Icon**: Dynamic based on train status
+  - `mdi:train-car` - Next train (Train 1) in normal service
+  - `mdi:train` - Later trains in normal service
+  - `mdi:train-variant` - Minor delay (1-10 minutes)
+  - `mdi:clock-alert` - Significant delay (>10 minutes)
+  - `mdi:alert-circle` - Cancelled
+- **Attributes**: Same as Next Train Sensor, with `train_number` indicating position (1 = next train, 2 = second train, etc.)
+- **Use Case**: Track multiple upcoming trains individually for more detailed monitoring and automations
+
+**Note**: The Next Train Sensor mirrors Train 1 for convenience. Train sensors automatically filter out departed trains.
+
+### 4. Severe Disruption Binary Sensor
 - **Entity ID**: `binary_sensor.{commute_name}_severe_disruption`
 - **State**: ON when disruption detected, OFF when services are normal
 - **Device Class**: `problem`
-- **Attributes**: Disruption type, affected services, delay information, reasons
+- **Attributes**:
+  - `disruption_type`: Type of disruption ("cancellation", "delay", "multiple", or null)
+  - `affected_services`: Number of services affected
+  - `cancelled_services`: Count of cancelled trains
+  - `delayed_services`: Count of delayed trains
+  - `max_delay_minutes`: Maximum delay in minutes
+  - `disruption_reasons`: List of reasons for disruptions
+- **Trigger Conditions**:
+  - Any train cancelled
+  - Single train delayed ≥15 minutes
+  - Multiple trains (≥2) delayed ≥5 minutes
 
 ## Prerequisites
 
@@ -215,6 +268,32 @@ automation:
               Your train is delayed by {{ delay }} minutes. Adjust your departure time.
             {% else %}
               Leave now to catch your train!
+            {% endif %}
+```
+
+### Monitor Specific Train
+
+Track a specific train in your commute (e.g., your preferred service):
+
+```yaml
+automation:
+  - alias: "Alert if Preferred Train is Delayed"
+    trigger:
+      - platform: state
+        entity_id: sensor.morning_commute_train_2
+    condition:
+      - condition: template
+        value_template: >
+          {{ state_attr('sensor.morning_commute_train_2', 'delay_minutes') | int > 5 }}
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Your Preferred Train is Delayed"
+          message: >
+            Train 2 ({{ states('sensor.morning_commute_train_2') }}) is delayed by
+            {{ state_attr('sensor.morning_commute_train_2', 'delay_minutes') }} minutes.
+            {% if state_attr('sensor.morning_commute_train_2', 'delay_reason') %}
+            Reason: {{ state_attr('sensor.morning_commute_train_2', 'delay_reason') }}
             {% endif %}
 ```
 
