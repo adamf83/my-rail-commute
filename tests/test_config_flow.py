@@ -1,7 +1,7 @@
 """Tests for the config flow."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, PropertyMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant import config_entries, data_entry_flow
@@ -365,60 +365,31 @@ class TestOptionsFlow:
         # Add the config entry to hass
         mock_config_entry.add_to_hass(hass)
 
-        from custom_components.my_rail_commute.config_flow import (
-            NationalRailCommuteOptionsFlow,
-        )
+        # Use Home Assistant's proper options flow initialization
+        result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
 
-        # Create the options flow
-        options_flow = NationalRailCommuteOptionsFlow()
-        options_flow.hass = hass
-
-        # Mock the config_entry property on the parent class using PropertyMock
-        # PropertyMock is designed specifically for mocking properties
-        with patch.object(
-            config_entries.OptionsFlow,
-            'config_entry',
-            new_callable=PropertyMock,
-            return_value=mock_config_entry
-        ):
-            # Call the init step directly
-            result = await options_flow.async_step_init()
-
-            assert result["type"] == data_entry_flow.FlowResultType.FORM
-            assert result["step_id"] == "init"
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "init"
 
     async def test_options_flow_update(self, hass: HomeAssistant, mock_config_entry):
         """Test updating options."""
         # Add the config entry to hass
         mock_config_entry.add_to_hass(hass)
 
-        from custom_components.my_rail_commute.config_flow import (
-            NationalRailCommuteOptionsFlow,
+        # Initialize the options flow properly through Home Assistant
+        result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+
+        # Configure the options
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_TIME_WINDOW: 90,
+                CONF_NUM_SERVICES: 5,
+                CONF_NIGHT_UPDATES: False,
+            },
         )
 
-        options_flow = NationalRailCommuteOptionsFlow()
-        options_flow.hass = hass
-
-        # Mock the config_entry property on the parent class using PropertyMock
-        with patch.object(
-            config_entries.OptionsFlow,
-            'config_entry',
-            new_callable=PropertyMock,
-            return_value=mock_config_entry
-        ):
-            # Initialize the form
-            result = await options_flow.async_step_init()
-
-            # Configure the options
-            result = await options_flow.async_step_init(
-                user_input={
-                    CONF_TIME_WINDOW: 90,
-                    CONF_NUM_SERVICES: 5,
-                    CONF_NIGHT_UPDATES: False,
-                }
-            )
-
-            assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-            assert result["data"][CONF_TIME_WINDOW] == 90
-            assert result["data"][CONF_NUM_SERVICES] == 5
-            assert result["data"][CONF_NIGHT_UPDATES] is False
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_TIME_WINDOW] == 90
+        assert result["data"][CONF_NUM_SERVICES] == 5
+        assert result["data"][CONF_NIGHT_UPDATES] is False
