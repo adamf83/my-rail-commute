@@ -365,19 +365,23 @@ class TestOptionsFlow:
         # Add the config entry to hass
         mock_config_entry.add_to_hass(hass)
 
-        # Create the options flow using the proper Home Assistant method
-        # This avoids the deprecated direct config_entry setting
         from custom_components.my_rail_commute.config_flow import (
             NationalRailCommuteOptionsFlow,
         )
 
-        # Initialize via the handler manager which properly sets config_entry
+        # Create the options flow
         options_flow = NationalRailCommuteOptionsFlow()
+        options_flow.hass = hass
 
-        # Use the handler attribute which is the proper way in HA 2024+
-        with patch.object(options_flow, 'config_entry', mock_config_entry):
-            options_flow.hass = hass
+        # Set config_entry using object.__setattr__ to bypass property checks
+        # This is necessary because config_entry is a managed property in the parent class
+        object.__setattr__(options_flow, '_config_entry', mock_config_entry)
 
+        # Mock the config_entry property to return our mock
+        with patch.object(
+            type(options_flow), 'config_entry',
+            new_callable=lambda: property(lambda self: mock_config_entry)
+        ):
             # Call the init step directly
             result = await options_flow.async_step_init()
 
@@ -394,11 +398,16 @@ class TestOptionsFlow:
         )
 
         options_flow = NationalRailCommuteOptionsFlow()
+        options_flow.hass = hass
 
-        # Use patch to mock config_entry instead of setting directly
-        with patch.object(options_flow, 'config_entry', mock_config_entry):
-            options_flow.hass = hass
+        # Set config_entry using object.__setattr__ to bypass property checks
+        object.__setattr__(options_flow, '_config_entry', mock_config_entry)
 
+        # Mock the config_entry property
+        with patch.object(
+            type(options_flow), 'config_entry',
+            new_callable=lambda: property(lambda self: mock_config_entry)
+        ):
             # Initialize the form
             result = await options_flow.async_step_init()
 

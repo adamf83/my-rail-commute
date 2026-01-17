@@ -333,22 +333,17 @@ class TestAPIRetryLogic:
 
     async def test_rate_limit_max_retries(self, api_client):
         """Test that rate limiting fails after max retries."""
-        # Mock _request to raise RateLimitError after max retries
-        call_count = 0
+        # Test _request method directly since validate_api_key catches all exceptions
+        # and converts them to AuthenticationError
+        with aioresponses() as mock:
+            # Mock 4 rate limit responses (initial + 3 retries)
+            url = f"{API_BASE_URL}/GetDepartureBoard/PAD?numRows=1"
+            for _ in range(4):
+                mock.get(url, status=429)
 
-        async def mock_request(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            # Should retry 3 times (4 total attempts) before raising RateLimitError
-            from custom_components.my_rail_commute.const import ERROR_RATE_LIMIT
-            raise RateLimitError(ERROR_RATE_LIMIT)
-
-        with patch.object(api_client, '_request', side_effect=mock_request):
+            # Test _request directly to verify retry logic
             with pytest.raises(RateLimitError):
-                await api_client.validate_api_key()
-
-            # Verify it was called once (validate_api_key doesn't retry, _request does)
-            assert call_count == 1
+                await api_client._request("GetDepartureBoard/PAD", {"numRows": 1})
 
     async def test_server_error_retry(self, api_client):
         """Test retry logic for server errors."""
