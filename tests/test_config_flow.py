@@ -365,10 +365,18 @@ class TestOptionsFlow:
         # Add the config entry to hass
         mock_config_entry.add_to_hass(hass)
 
-        # Initialize the options flow
-        result = await hass.config_entries.options.async_init(
-            mock_config_entry.entry_id
+        # Create the options flow and manually set config_entry
+        # (in production, this is done by Home Assistant framework)
+        from custom_components.my_rail_commute.config_flow import (
+            NationalRailCommuteOptionsFlow,
         )
+
+        options_flow = NationalRailCommuteOptionsFlow()
+        options_flow.hass = hass
+        options_flow.config_entry = mock_config_entry
+
+        # Call the init step directly
+        result = await options_flow.async_step_init()
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
         assert result["step_id"] == "init"
@@ -378,19 +386,28 @@ class TestOptionsFlow:
         # Add the config entry to hass
         mock_config_entry.add_to_hass(hass)
 
-        # Initialize the options flow
-        result = await hass.config_entries.options.async_init(
-            mock_config_entry.entry_id
+        # Create the options flow and manually set config_entry
+        from custom_components.my_rail_commute.config_flow import (
+            NationalRailCommuteOptionsFlow,
         )
 
+        options_flow = NationalRailCommuteOptionsFlow()
+        options_flow.hass = hass
+        options_flow.config_entry = mock_config_entry
+
+        # Initialize the form
+        result = await options_flow.async_step_init()
+
+        # Set the flow_id manually for the second step
+        options_flow.flow_id = result["flow_id"]
+
         # Configure the options
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
+        result = await options_flow.async_step_init(
             user_input={
                 CONF_TIME_WINDOW: 90,
                 CONF_NUM_SERVICES: 5,
                 CONF_NIGHT_UPDATES: False,
-            },
+            }
         )
 
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY

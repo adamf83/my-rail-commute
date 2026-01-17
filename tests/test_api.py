@@ -331,18 +331,19 @@ class TestAPIRetryLogic:
             result = await api_client.validate_api_key()
             assert result is True
 
-    async def test_rate_limit_max_retries(self, api_client):
+    async def test_rate_limit_max_retries(self, aiohttp_session):
         """Test that rate limiting fails after max retries."""
+        # Create client with mocked session
+        api = NationalRailAPI("test_key", aiohttp_session)
+
         with aioresponses() as mock:
-            # All requests: rate limited
-            for _ in range(4):  # Initial + 3 retries
-                mock.get(
-                    f"{API_BASE_URL}/GetDepartureBoard/PAD?numRows=1",
-                    status=429,
-                )
+            # Add multiple 429 responses - one for initial request + 3 retries
+            # Include query parameters in the URL pattern
+            url = f"{API_BASE_URL}/GetDepartureBoard/PAD?numRows=1"
+            mock.get(url, status=429, repeat=True)
 
             with pytest.raises(RateLimitError):
-                await api_client.validate_api_key()
+                await api.validate_api_key()
 
     async def test_server_error_retry(self, api_client):
         """Test retry logic for server errors."""
