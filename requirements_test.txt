@@ -1,0 +1,19 @@
+# Test dependencies for My Rail Commute integration
+
+# Testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Home Assistant test utilities
+pytest-homeassistant-custom-component>=0.13.0
+
+# Mocking and test helpers
+aioresponses>=0.7.6
+
+# Required runtime dependencies
+aiohttp>=3.9.0
+voluptuous>=0.13.1
+
+# Home Assistant (for testing)
+homeassistant>=2024.1.0

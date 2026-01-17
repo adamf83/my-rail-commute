@@ -1,0 +1,44 @@
+{
+  "GetStationBoardResult": {
+    "generatedAt": "2024-01-15T08:30:00",
+    "locationName": "London Paddington",
+    "crs": "PAD",
+    "filterLocationName": "Reading",
+    "filtercrs": "RDG",
+    "trainServices": {
+      "service": [
+        {
+          "std": "08:35",
+          "etd": "On time",
+          "platform": "3",
+          "operator": "Great Western Railway",
+          "serviceID": "service123",
+          "destination": [
+            {
+              "locationName": "Reading",
+              "crs": "RDG"
+            }
+          ],
+          "subsequentCallingPoints": [
+            {
+              "callingPoint": [
+                {
+                  "locationName": "Slough",
+                  "crs": "SLO",
+                  "st": "08:47",
+                  "et": "On time"
+                },
+                {
+                  "locationName": "Reading",
+                  "crs": "RDG",
+                  "st": "08:55",
+                  "et": "On time"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "GetStationBoardResult": {
+    "generatedAt": "2024-01-15T08:30:00",
+    "locationName": "London Paddington",
+    "crs": "PAD",
+    "filterLocationName": "Reading",
+    "filtercrs": "RDG",
+    "trainServices": {
+      "service": [
+        {
+          "std": "09:05",
+          "etd": "Cancelled",
+          "platform": "2",
+          "operator": "Great Western Railway",
+          "serviceID": "service789",
+          "cancelReason": "Train crew unavailable",
+          "destination": [
+            {
+              "locationName": "Reading",
+              "crs": "RDG"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
