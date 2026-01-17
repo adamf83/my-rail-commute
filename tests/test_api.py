@@ -26,23 +26,21 @@ from .conftest import load_json_fixture
 
 
 @pytest.fixture(name="api_client")
-async def api_client_fixture():
-    """Create an API client with a mock session."""
-    session = MagicMock()
-    client = NationalRailAPI("test_api_key", session)
+async def api_client_fixture(aiohttp_session):
+    """Create an API client with a real session."""
+    client = NationalRailAPI("test_api_key", aiohttp_session)
     return client
 
 
 class TestNationalRailAPIInit:
     """Tests for API client initialization."""
 
-    async def test_init(self):
+    async def test_init(self, aiohttp_session):
         """Test API client initialization."""
-        session = MagicMock()
-        api = NationalRailAPI("test_key", session)
+        api = NationalRailAPI("test_key", aiohttp_session)
 
         assert api._api_key == "test_key"
-        assert api._session == session
+        assert api._session == aiohttp_session
         assert api._base_url == API_BASE_URL
         assert api._headers["x-apikey"] == "test_key"
         assert "User-Agent" in api._headers

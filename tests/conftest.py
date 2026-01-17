@@ -1,11 +1,12 @@
 """Fixtures for My Rail Commute tests."""
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -71,13 +72,12 @@ def mock_api_client_fixture() -> Generator[AsyncMock]:
         yield client
 
 
-@pytest.fixture(name="mock_aiohttp_session")
-def mock_aiohttp_session_fixture() -> Generator[MagicMock]:
-    """Return a mocked aiohttp session."""
-    with patch(
-        "custom_components.my_rail_commute.config_flow.async_get_clientsession"
-    ) as mock_session:
-        yield mock_session.return_value
+@pytest.fixture
+async def aiohttp_session() -> AsyncGenerator[aiohttp.ClientSession, None]:
+    """Create a real aiohttp session for testing."""
+    session = aiohttp.ClientSession()
+    yield session
+    await session.close()
 
 
 def load_fixture(filename: str) -> str:

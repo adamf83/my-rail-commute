@@ -362,8 +362,10 @@ class TestOptionsFlow:
 
     async def test_options_flow_init(self, hass: HomeAssistant, mock_config_entry):
         """Test options flow initialization."""
+        # Add the config entry to hass
         mock_config_entry.add_to_hass(hass)
 
+        # Initialize the options flow
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
@@ -373,12 +375,15 @@ class TestOptionsFlow:
 
     async def test_options_flow_update(self, hass: HomeAssistant, mock_config_entry):
         """Test updating options."""
+        # Add the config entry to hass
         mock_config_entry.add_to_hass(hass)
 
+        # Initialize the options flow
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
 
+        # Configure the options
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
             user_input={
