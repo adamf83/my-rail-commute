@@ -1,0 +1,29 @@
+name: Lint
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint with Ruff
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff linter
+        run: ruff check custom_components/ tests/
+
+      - name: Run Ruff formatter check
+        run: ruff format --check custom_components/ tests/
