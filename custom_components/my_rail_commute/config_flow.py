@@ -322,11 +322,19 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Returns:
             Options flow handler
         """
-        return NationalRailCommuteOptionsFlow()
+        return NationalRailCommuteOptionsFlow(config_entry)
 
 
 class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for My Rail Commute."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow.
+
+        Args:
+            config_entry: Config entry instance
+        """
+        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
