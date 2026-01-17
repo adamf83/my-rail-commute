@@ -15,7 +15,7 @@ A custom Home Assistant integration that tracks regular commutes using National 
 - **Multi-Route Support**: Configure multiple commutes (e.g., morning and evening journeys)
 - **UI Configuration**: Easy setup through Home Assistant's config flow interface
 - **HACS Compatible**: Simple installation via Home Assistant Community Store
-- **Custom Lovelace Card**: Beautiful, dedicated dashboard card for displaying train information
+- **Custom Lovelace Card**: Beautiful, dedicated [dashboard card](https://github.com/adamf83/lovelace-my-rail-commute-card) for displaying train information
 
 ## Sensors
 
@@ -88,7 +88,7 @@ The integration creates multiple sensors for each configured commute:
 - **Trigger Conditions**:
   - Any train cancelled
   - Single train delayed ≥15 minutes
-  - Multiple trains (≥2) delayed ≥5 minutes
+  - Multiple trains (≥2) delayed ≥10 minutes
 
 ## Prerequisites
 
