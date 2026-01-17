@@ -72,12 +72,17 @@ def mock_api_client_fixture() -> Generator[AsyncMock]:
         yield client
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 async def aiohttp_session() -> AsyncGenerator[aiohttp.ClientSession, None]:
     """Create a real aiohttp session for testing."""
+    # Create a new session for each test
     session = aiohttp.ClientSession()
-    yield session
-    await session.close()
+    try:
+        yield session
+    finally:
+        # Ensure proper cleanup even if test fails
+        if not session.closed:
+            await session.close()
 
 
 def load_fixture(filename: str) -> str:
