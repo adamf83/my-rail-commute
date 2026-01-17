@@ -1,7 +1,7 @@
 """Tests for the config flow."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, PropertyMock, patch
 
 import pytest
 from homeassistant import config_entries, data_entry_flow
@@ -373,14 +373,13 @@ class TestOptionsFlow:
         options_flow = NationalRailCommuteOptionsFlow()
         options_flow.hass = hass
 
-        # Set config_entry using object.__setattr__ to bypass property checks
-        # This is necessary because config_entry is a managed property in the parent class
-        object.__setattr__(options_flow, '_config_entry', mock_config_entry)
-
-        # Mock the config_entry property to return our mock
+        # Mock the config_entry property on the parent class using PropertyMock
+        # PropertyMock is designed specifically for mocking properties
         with patch.object(
-            type(options_flow), 'config_entry',
-            new_callable=lambda: property(lambda self: mock_config_entry)
+            config_entries.OptionsFlow,
+            'config_entry',
+            new_callable=PropertyMock,
+            return_value=mock_config_entry
         ):
             # Call the init step directly
             result = await options_flow.async_step_init()
@@ -400,13 +399,12 @@ class TestOptionsFlow:
         options_flow = NationalRailCommuteOptionsFlow()
         options_flow.hass = hass
 
-        # Set config_entry using object.__setattr__ to bypass property checks
-        object.__setattr__(options_flow, '_config_entry', mock_config_entry)
-
-        # Mock the config_entry property
+        # Mock the config_entry property on the parent class using PropertyMock
         with patch.object(
-            type(options_flow), 'config_entry',
-            new_callable=lambda: property(lambda self: mock_config_entry)
+            config_entries.OptionsFlow,
+            'config_entry',
+            new_callable=PropertyMock,
+            return_value=mock_config_entry
         ):
             # Initialize the form
             result = await options_flow.async_step_init()
