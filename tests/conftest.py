@@ -75,6 +75,8 @@ def mock_api_client_fixture() -> Generator[AsyncMock]:
 @pytest.fixture(scope="function")
 async def aiohttp_session() -> AsyncGenerator[aiohttp.ClientSession, None]:
     """Create a real aiohttp session for testing."""
+    import asyncio
+
     # Create a new session for each test
     session = aiohttp.ClientSession()
     try:
@@ -83,6 +85,10 @@ async def aiohttp_session() -> AsyncGenerator[aiohttp.ClientSession, None]:
         # Ensure proper cleanup even if test fails
         if not session.closed:
             await session.close()
+        # Wait for the connector to fully close and background threads to finish
+        # This is necessary in Python 3.12 where aiohttp's _run_safe_shutdown_loop
+        # thread needs time to complete before pytest checks for lingering threads
+        await asyncio.sleep(0.250)
 
 
 def load_fixture(filename: str) -> str:
