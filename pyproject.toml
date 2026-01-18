@@ -3,7 +3,7 @@ name = "my-rail-commute"
 version = "1.0.0"
 description = "Home Assistant custom integration for UK National Rail commutes"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = {text = "MIT"}
 
 [tool.pytest.ini_options]
@@ -53,7 +53,7 @@ show_missing = true
 fail_under = 40
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py313"
 line-length = 88
 
 [tool.ruff.lint]
