@@ -380,30 +380,33 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             current_platform = train.get("platform") or ""
             current_service_id = train.get("service_id")
 
-            # Detect platform changes for the same service
-            # Only track changes if we have a service_id and it matches the previous one
-            if current_service_id and self._current_service_id == current_service_id:
+            # Handle platform change detection for the same service
+            if current_service_id and current_service_id == self._current_service_id:
                 # Same service - check for platform change
-                if self._previous_platform is not None and self._previous_platform != current_platform:
-                    # Platform has changed!
-                    _LOGGER.info(
-                        "Platform changed for train %d (service %s): %s -> %s",
-                        self._train_number,
-                        current_service_id,
-                        self._previous_platform,
-                        current_platform,
-                    )
-                    self._platform_changed = True
-                    # Keep the previous platform stored
+                if self._previous_platform != current_platform:
+                    if self._previous_platform is not None:
+                        # Platform has changed!
+                        _LOGGER.info(
+                            "Platform changed for train %d (service %s): %s -> %s",
+                            self._train_number,
+                            current_service_id,
+                            self._previous_platform,
+                            current_platform,
+                        )
+                        self._platform_changed = True
+                        # Keep the previous platform stored (don't update it)
+                    else:
+                        # First time seeing this platform for this service
+                        self._previous_platform = current_platform
+                        self._platform_changed = False
                 else:
-                    # Platform hasn't changed yet
+                    # Platform hasn't changed
                     self._platform_changed = False
             else:
-                # Different service or first update - reset tracking
-                if current_service_id != self._current_service_id:
-                    self._platform_changed = False
-                    self._previous_platform = current_platform
-                    self._current_service_id = current_service_id
+                # Different service or first time - reset tracking
+                self._platform_changed = False
+                self._previous_platform = current_platform
+                self._current_service_id = current_service_id
         else:
             # Train doesn't exist anymore - reset tracking
             self._previous_platform = None
@@ -591,29 +594,32 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             current_platform = train.get("platform") or ""
             current_service_id = train.get("service_id")
 
-            # Detect platform changes for the same service
-            # Only track changes if we have a service_id and it matches the previous one
-            if current_service_id and self._current_service_id == current_service_id:
+            # Handle platform change detection for the same service
+            if current_service_id and current_service_id == self._current_service_id:
                 # Same service - check for platform change
-                if self._previous_platform is not None and self._previous_platform != current_platform:
-                    # Platform has changed!
-                    _LOGGER.info(
-                        "Platform changed for next train (service %s): %s -> %s",
-                        current_service_id,
-                        self._previous_platform,
-                        current_platform,
-                    )
-                    self._platform_changed = True
-                    # Keep the previous platform stored
+                if self._previous_platform != current_platform:
+                    if self._previous_platform is not None:
+                        # Platform has changed!
+                        _LOGGER.info(
+                            "Platform changed for next train (service %s): %s -> %s",
+                            current_service_id,
+                            self._previous_platform,
+                            current_platform,
+                        )
+                        self._platform_changed = True
+                        # Keep the previous platform stored (don't update it)
+                    else:
+                        # First time seeing this platform for this service
+                        self._previous_platform = current_platform
+                        self._platform_changed = False
                 else:
-                    # Platform hasn't changed yet
+                    # Platform hasn't changed
                     self._platform_changed = False
             else:
-                # Different service or first update - reset tracking
-                if current_service_id != self._current_service_id:
-                    self._platform_changed = False
-                    self._previous_platform = current_platform
-                    self._current_service_id = current_service_id
+                # Different service or first time - reset tracking
+                self._platform_changed = False
+                self._previous_platform = current_platform
+                self._current_service_id = current_service_id
         else:
             # Train doesn't exist anymore - reset tracking
             self._previous_platform = None
