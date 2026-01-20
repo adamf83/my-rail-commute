@@ -1,15 +1,12 @@
 """Tests for platform change detection in sensors."""
 from __future__ import annotations
 
-from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
-from homeassistant.util import dt as dt_util
 
 from custom_components.my_rail_commute.const import DOMAIN
 
@@ -91,8 +88,9 @@ async def test_train_sensor_platform_change_detection(
         "nrcc_messages": [],
     }
 
-    # Trigger an update
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
+    # Get the coordinator and trigger a manual refresh
+    coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
+    await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     # Check that platform change was detected
@@ -176,8 +174,9 @@ async def test_train_sensor_no_platform_change_for_different_service(
         "nrcc_messages": [],
     }
 
-    # Trigger an update
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
+    # Get the coordinator and trigger a manual refresh
+    coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
+    await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     # Platform change should NOT be flagged (different service)
@@ -255,8 +254,9 @@ async def test_train_sensor_platform_change_from_tba(
         "nrcc_messages": [],
     }
 
-    # Trigger an update
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
+    # Get the coordinator and trigger a manual refresh
+    coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
+    await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     # Platform assignment should be detected as a change
@@ -303,10 +303,13 @@ async def test_train_sensor_multiple_platform_changes(
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
+    # Get the coordinator
+    coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
+
     # First platform change: 3 -> 5
     mock_api_client.get_departure_board.return_value["services"][0]["platform"] = "5"
     mock_api_client.get_departure_board.return_value["generated_at"] = "2024-01-15T08:31:00"
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
+    await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     train_1_state = hass.states.get("sensor.test_commute_train_1")
@@ -317,7 +320,7 @@ async def test_train_sensor_multiple_platform_changes(
     # Second platform change: 5 -> 7
     mock_api_client.get_departure_board.return_value["services"][0]["platform"] = "7"
     mock_api_client.get_departure_board.return_value["generated_at"] = "2024-01-15T08:32:00"
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+    await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     train_1_state = hass.states.get("sensor.test_commute_train_1")
