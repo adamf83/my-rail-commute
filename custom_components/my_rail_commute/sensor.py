@@ -404,12 +404,6 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
                     self._platform_changed = False
                     self._previous_platform = current_platform
                     self._current_service_id = current_service_id
-
-            # Update current platform if this is the first time or if platform changed
-            if self._previous_platform is None or self._platform_changed:
-                # Don't update previous_platform if changed - we want to keep the old one
-                if not self._platform_changed:
-                    self._previous_platform = current_platform
         else:
             # Train doesn't exist anymore - reset tracking
             self._previous_platform = None
@@ -620,12 +614,6 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
                     self._platform_changed = False
                     self._previous_platform = current_platform
                     self._current_service_id = current_service_id
-
-            # Update current platform if this is the first time or if platform changed
-            if self._previous_platform is None or self._platform_changed:
-                # Don't update previous_platform if changed - we want to keep the old one
-                if not self._platform_changed:
-                    self._previous_platform = current_platform
         else:
             # Train doesn't exist anymore - reset tracking
             self._previous_platform = None
