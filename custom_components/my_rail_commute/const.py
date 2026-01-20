@@ -50,8 +50,19 @@ DISRUPTION_MULTIPLE_SERVICES: Final = 2
 
 # Sensor types
 SENSOR_SUMMARY: Final = "summary"
+SENSOR_STATUS: Final = "status"
 SENSOR_NEXT_TRAIN: Final = "next_train"
 SENSOR_DISRUPTION: Final = "disruption"
+
+# Commute status levels (for overall commute status sensor)
+STATUS_NORMAL: Final = "Normal"
+STATUS_MINOR_DELAYS: Final = "Minor Delays"
+STATUS_MAJOR_DELAYS: Final = "Major Delays"
+STATUS_CANCELLATIONS: Final = "Cancellations"
+
+# Delay thresholds for commute status classification
+STATUS_MINOR_DELAY_THRESHOLD: Final = 1  # minutes
+STATUS_MAJOR_DELAY_THRESHOLD: Final = 10  # minutes
 
 # Attributes
 ATTR_ORIGIN: Final = "origin"

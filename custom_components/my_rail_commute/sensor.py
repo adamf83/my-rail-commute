@@ -39,6 +39,12 @@ from .const import (
     CONF_COMMUTE_NAME,
     CONF_NUM_SERVICES,
     DOMAIN,
+    STATUS_CANCELLATIONS,
+    STATUS_MAJOR_DELAYS,
+    STATUS_MAJOR_DELAY_THRESHOLD,
+    STATUS_MINOR_DELAYS,
+    STATUS_MINOR_DELAY_THRESHOLD,
+    STATUS_NORMAL,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
 
@@ -66,6 +72,7 @@ async def async_setup_entry(
     # Create sensors
     entities: list[SensorEntity] = [
         CommuteSummarySensor(coordinator, entry),
+        CommuteStatusSensor(coordinator, entry),
         NextTrainSensor(coordinator, entry),  # Mirrors train_1 for convenience
     ]
 
@@ -198,6 +205,134 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
         }
 
 
+class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor for overall commute status (Normal/Minor Delays/Major Delays/Cancellations)."""
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the commute status sensor.
+
+        Args:
+            coordinator: Data coordinator
+            entry: Config entry
+        """
+        super().__init__(coordinator, entry)
+
+        self._attr_name = "Status"
+        self._attr_unique_id = f"{entry.entry_id}_status"
+        self._attr_icon = "mdi:train"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor.
+
+        Returns:
+            Status: Normal, Minor Delays, Major Delays, or Cancellations
+        """
+        if not self.coordinator.data:
+            return None
+
+        services = self.coordinator.data.get("services", [])
+
+        if not services:
+            return STATUS_NORMAL
+
+        # Check for cancellations first (highest priority)
+        cancelled_count = sum(1 for s in services if s.get("is_cancelled", False))
+        if cancelled_count > 0:
+            return STATUS_CANCELLATIONS
+
+        # Check for major delays
+        major_delays = sum(
+            1 for s in services
+            if s.get("delay_minutes", 0) >= STATUS_MAJOR_DELAY_THRESHOLD
+        )
+        if major_delays > 0:
+            return STATUS_MAJOR_DELAYS
+
+        # Check for minor delays
+        minor_delays = sum(
+            1 for s in services
+            if s.get("delay_minutes", 0) >= STATUS_MINOR_DELAY_THRESHOLD
+        )
+        if minor_delays > 0:
+            return STATUS_MINOR_DELAYS
+
+        return STATUS_NORMAL
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on commute status.
+
+        Returns:
+            Icon string
+        """
+        status = self.native_value
+
+        if status == STATUS_CANCELLATIONS:
+            return "mdi:alert-circle"
+        elif status == STATUS_MAJOR_DELAYS:
+            return "mdi:clock-alert"
+        elif status == STATUS_MINOR_DELAYS:
+            return "mdi:train-variant"
+
+        return "mdi:train"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes.
+
+        Returns:
+            Dictionary of attributes
+        """
+        if not self.coordinator.data:
+            return {}
+
+        data = self.coordinator.data
+        services = data.get("services", [])
+
+        # Calculate statistics
+        total_trains = len(services)
+        cancelled_count = sum(1 for s in services if s.get("is_cancelled", False))
+        major_delays = sum(
+            1 for s in services
+            if not s.get("is_cancelled", False)
+            and s.get("delay_minutes", 0) >= STATUS_MAJOR_DELAY_THRESHOLD
+        )
+        minor_delays = sum(
+            1 for s in services
+            if not s.get("is_cancelled", False)
+            and s.get("delay_minutes", 0) >= STATUS_MINOR_DELAY_THRESHOLD
+            and s.get("delay_minutes", 0) < STATUS_MAJOR_DELAY_THRESHOLD
+        )
+        on_time = total_trains - cancelled_count - major_delays - minor_delays
+
+        # Get max delay
+        max_delay = 0
+        if services:
+            max_delay = max(
+                (s.get("delay_minutes", 0) for s in services if not s.get("is_cancelled", False)),
+                default=0
+            )
+
+        return {
+            "total_trains": total_trains,
+            "on_time_count": on_time,
+            "minor_delays_count": minor_delays,
+            "major_delays_count": major_delays,
+            "cancelled_count": cancelled_count,
+            "max_delay_minutes": max_delay,
+            ATTR_ORIGIN: data.get("origin"),
+            ATTR_ORIGIN_NAME: data.get("origin_name"),
+            ATTR_DESTINATION: data.get("destination"),
+            ATTR_DESTINATION_NAME: data.get("destination_name"),
+            "last_updated": data.get("last_updated"),
+        }
+
+
 class TrainSensor(NationalRailCommuteEntity, SensorEntity):
     """Sensor for individual train information."""
 
@@ -231,7 +366,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
         """Return the state of the sensor.
 
         Returns:
-            Departure time, status text, or "No service"
+            Departure status: "On Time", "Delayed", "Cancelled", "Expected", or "No service"
         """
         if not self.coordinator.data:
             return None
@@ -244,15 +379,8 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
 
         train = services[self._train_number - 1]
 
-        # Return appropriate state based on status
-        if train.get("is_cancelled"):
-            return "Cancelled"
-
-        expected = train.get("expected_departure")
-        scheduled = train.get("scheduled_departure")
-
-        # Return expected time (which includes delays)
-        return expected or scheduled
+        # Return departure status
+        return self._get_departure_status(train)
 
     @property
     def icon(self) -> str:
@@ -308,13 +436,18 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
 
         train = services[self._train_number - 1]
 
+        # Determine display time (expected or scheduled)
+        expected = train.get("expected_departure")
+        scheduled = train.get("scheduled_departure")
+        departure_time = expected or scheduled
+
         # Build comprehensive attributes
         attributes = {
             "train_number": self._train_number,
             "total_trains": len(services),
+            "departure_time": departure_time,  # Moved from state to attribute
             ATTR_SCHEDULED_DEPARTURE: train.get("scheduled_departure"),
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
-            "departure_status": self._get_departure_status(train),
             ATTR_PLATFORM: train.get("platform") or "TBA",
             "platform_changed": False,  # TODO: Detect platform changes if API provides this
             ATTR_OPERATOR: train.get("operator"),
@@ -392,7 +525,7 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
         """Return the state of the sensor (mirrors train_1).
 
         Returns:
-            Departure time, status text, or "No service"
+            Departure status: "On Time", "Delayed", "Cancelled", "Expected", or "No service"
         """
         if not self.coordinator.data:
             return None
@@ -406,15 +539,8 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
         # Get first train (same as train_1)
         train = services[0]
 
-        # Return appropriate state based on status
-        if train.get("is_cancelled"):
-            return "Cancelled"
-
-        expected = train.get("expected_departure")
-        scheduled = train.get("scheduled_departure")
-
-        # Return expected time (which includes delays)
-        return expected or scheduled
+        # Return departure status
+        return self._get_departure_status(train)
 
     @property
     def icon(self) -> str:
@@ -467,13 +593,18 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
 
         train = services[0]
 
+        # Determine display time (expected or scheduled)
+        expected = train.get("expected_departure")
+        scheduled = train.get("scheduled_departure")
+        departure_time = expected or scheduled
+
         # Build comprehensive attributes (same as train_1)
         attributes = {
             "train_number": 1,
             "total_trains": len(services),
+            "departure_time": departure_time,  # Moved from state to attribute
             ATTR_SCHEDULED_DEPARTURE: train.get("scheduled_departure"),
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
-            "departure_status": self._get_departure_status(train),
             ATTR_PLATFORM: train.get("platform") or "TBA",
             ATTR_OPERATOR: train.get("operator"),
             ATTR_SERVICE_ID: train.get("service_id"),
