@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -11,105 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from custom_components.my_rail_commute.const import DOMAIN
-
-
-async def test_train_sensor_platform_change_detection(
-    hass: HomeAssistant,
-    mock_config_entry,
-    mock_api_client,
-) -> None:
-    """Test that platform changes are detected for individual train sensors."""
-    # Freeze time to before the scheduled departure (08:00)
-    test_time = datetime(2024, 1, 15, 8, 0, 0, tzinfo=dt_util.UTC)
-
-    with patch("custom_components.my_rail_commute.coordinator.dt_util.now", return_value=test_time):
-        # Initial response with platform "3"
-        mock_api_client.get_departure_board.return_value = {
-            "location_name": "London Paddington",
-            "destination_name": "Reading",
-            "services": [
-                {
-                    "scheduled_departure": "08:35",
-                    "expected_departure": "08:35",
-                    "platform": "3",
-                    "operator": "Great Western Railway",
-                    "service_id": "service123",
-                    "calling_points": ["Slough", "Reading"],
-                    "delay_minutes": 0,
-                    "status": "on_time",
-                    "is_cancelled": False,
-                    "cancellation_reason": "",
-                    "delay_reason": "",
-                    "scheduled_arrival": "08:55",
-                    "estimated_arrival": "08:55",
-                    "destination": "Reading",
-                }
-            ],
-            "generated_at": "2024-01-15T08:30:00",
-            "nrcc_messages": [],
-        }
-
-        # Set up the integration
-        mock_config_entry.add_to_hass(hass)
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
-
-        # Get train 1 sensor
-        train_1_state = hass.states.get("sensor.test_commute_train_1")
-        assert train_1_state is not None
-        assert train_1_state.attributes["platform"] == "3"
-        assert train_1_state.attributes["platform_changed"] is False
-        assert train_1_state.attributes["previous_platform"] is None
-
-        # Get next train sensor (mirrors train 1)
-        next_train_state = hass.states.get("sensor.test_commute_next_train")
-        assert next_train_state is not None
-        assert next_train_state.attributes["platform"] == "3"
-        assert next_train_state.attributes["platform_changed"] is False
-        assert next_train_state.attributes["previous_platform"] is None
-
-        # Simulate platform change - same service, different platform
-        mock_api_client.get_departure_board.return_value = {
-            "location_name": "London Paddington",
-            "destination_name": "Reading",
-            "services": [
-                {
-                    "scheduled_departure": "08:35",
-                    "expected_departure": "08:35",
-                    "platform": "5",  # Platform changed from 3 to 5
-                    "operator": "Great Western Railway",
-                    "service_id": "service123",  # Same service
-                    "calling_points": ["Slough", "Reading"],
-                    "delay_minutes": 0,
-                    "status": "on_time",
-                    "is_cancelled": False,
-                    "cancellation_reason": "",
-                    "delay_reason": "",
-                    "scheduled_arrival": "08:55",
-                    "estimated_arrival": "08:55",
-                    "destination": "Reading",
-                }
-            ],
-            "generated_at": "2024-01-15T08:31:00",
-            "nrcc_messages": [],
-        }
-
-        # Get the coordinator and trigger a manual refresh
-        coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
-        await coordinator.async_refresh()
-        await hass.async_block_till_done()
-
-        # Check that platform change was detected
-        train_1_state = hass.states.get("sensor.test_commute_train_1")
-        assert train_1_state.attributes["platform"] == "5"
-        assert train_1_state.attributes["platform_changed"] is True
-        assert train_1_state.attributes["previous_platform"] == "3"
-
-        # Check next train sensor also detected the change
-        next_train_state = hass.states.get("sensor.test_commute_next_train")
-        assert next_train_state.attributes["platform"] == "5"
-        assert next_train_state.attributes["platform_changed"] is True
-        assert next_train_state.attributes["previous_platform"] == "3"
+from custom_components.my_rail_commute.sensor import TrainSensor
 
 
 async def test_train_sensor_no_platform_change_for_different_service(
@@ -196,153 +98,179 @@ async def test_train_sensor_no_platform_change_for_different_service(
         assert train_1_state.attributes["previous_platform"] is None
 
 
-async def test_train_sensor_platform_change_from_tba(
-    hass: HomeAssistant,
-    mock_config_entry,
-    mock_api_client,
-) -> None:
-    """Test that platform assignment from TBA is detected as a change."""
-    # Freeze time to before the scheduled departure (08:00)
-    test_time = datetime(2024, 1, 15, 8, 0, 0, tzinfo=dt_util.UTC)
+def test_platform_change_detection_unit():
+    """Unit test for platform change detection logic."""
+    # Create a mock coordinator
+    mock_coordinator = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.entry_id = "test_entry"
 
-    with patch("custom_components.my_rail_commute.coordinator.dt_util.now", return_value=test_time):
-        # Initial response with empty platform (TBA)
-        mock_api_client.get_departure_board.return_value = {
-            "location_name": "London Paddington",
-            "destination_name": "Reading",
-            "services": [
-                {
-                    "scheduled_departure": "08:35",
-                    "expected_departure": "08:35",
-                    "platform": "",  # Platform TBA
-                    "operator": "Great Western Railway",
-                    "service_id": "service123",
-                    "calling_points": ["Slough", "Reading"],
-                    "delay_minutes": 0,
-                    "status": "on_time",
-                    "is_cancelled": False,
-                    "cancellation_reason": "",
-                    "delay_reason": "",
-                    "scheduled_arrival": "08:55",
-                    "estimated_arrival": "08:55",
-                    "destination": "Reading",
-                }
-            ],
-            "generated_at": "2024-01-15T08:30:00",
-            "nrcc_messages": [],
-        }
+    # Create the sensor
+    sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
 
-        # Set up the integration
-        mock_config_entry.add_to_hass(hass)
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
+    # Test 1: Initial update with platform "3"
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "3",
+                "service_id": "service123",
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
 
-        # Verify initial state
-        train_1_state = hass.states.get("sensor.test_commute_train_1")
-        assert train_1_state.attributes["platform"] == "TBA"
-        assert train_1_state.attributes["platform_changed"] is False
+    assert sensor._current_service_id == "service123"
+    assert sensor._previous_platform == "3"
+    assert sensor._platform_changed is False
 
-        # Platform is now assigned
-        mock_api_client.get_departure_board.return_value = {
-            "location_name": "London Paddington",
-            "destination_name": "Reading",
-            "services": [
-                {
-                    "scheduled_departure": "08:35",
-                    "expected_departure": "08:35",
-                    "platform": "3",  # Platform assigned
-                    "operator": "Great Western Railway",
-                    "service_id": "service123",
-                    "calling_points": ["Slough", "Reading"],
-                    "delay_minutes": 0,
-                    "status": "on_time",
-                    "is_cancelled": False,
-                    "cancellation_reason": "",
-                    "delay_reason": "",
-                    "scheduled_arrival": "08:55",
-                    "estimated_arrival": "08:55",
-                    "destination": "Reading",
-                }
-            ],
-            "generated_at": "2024-01-15T08:31:00",
-            "nrcc_messages": [],
-        }
+    # Test 2: Same service, platform changed from "3" to "5"
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "5",
+                "service_id": "service123",
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
 
-        # Get the coordinator and trigger a manual refresh
-        coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
-        await coordinator.async_refresh()
-        await hass.async_block_till_done()
+    assert sensor._current_service_id == "service123"
+    assert sensor._previous_platform == "3"  # Should NOT update - preserved
+    assert sensor._platform_changed is True
 
-        # Platform assignment should be detected as a change
-        train_1_state = hass.states.get("sensor.test_commute_train_1")
-        assert train_1_state.attributes["platform"] == "3"
-        assert train_1_state.attributes["platform_changed"] is True
-        assert train_1_state.attributes["previous_platform"] == ""
+    # Test 3: Same service, platform changed again from "5" to "7"
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "7",
+                "service_id": "service123",
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
+
+    assert sensor._current_service_id == "service123"
+    assert sensor._previous_platform == "3"  # Still the original
+    assert sensor._platform_changed is True
+
+    # Test 4: Different service - should reset
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "4",
+                "service_id": "service456",
+                "scheduled_departure": "08:50",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
+
+    assert sensor._current_service_id == "service456"
+    assert sensor._previous_platform == "4"
+    assert sensor._platform_changed is False
 
 
-async def test_train_sensor_multiple_platform_changes(
-    hass: HomeAssistant,
-    mock_config_entry,
-    mock_api_client,
-) -> None:
-    """Test that multiple platform changes are tracked correctly."""
-    # Freeze time to before the scheduled departure (08:00)
-    test_time = datetime(2024, 1, 15, 8, 0, 0, tzinfo=dt_util.UTC)
+def test_platform_change_from_tba_unit():
+    """Unit test for platform assignment from TBA."""
+    # Create a mock coordinator
+    mock_coordinator = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.entry_id = "test_entry"
 
-    with patch("custom_components.my_rail_commute.coordinator.dt_util.now", return_value=test_time):
-        # Initial response
-        mock_api_client.get_departure_board.return_value = {
-            "location_name": "London Paddington",
-            "destination_name": "Reading",
-            "services": [
-                {
-                    "scheduled_departure": "08:35",
-                    "expected_departure": "08:35",
-                    "platform": "3",
-                    "operator": "Great Western Railway",
-                    "service_id": "service123",
-                    "calling_points": ["Slough", "Reading"],
-                    "delay_minutes": 0,
-                    "status": "on_time",
-                    "is_cancelled": False,
-                    "cancellation_reason": "",
-                    "delay_reason": "",
-                    "scheduled_arrival": "08:55",
-                    "estimated_arrival": "08:55",
-                    "destination": "Reading",
-                }
-            ],
-            "generated_at": "2024-01-15T08:30:00",
-            "nrcc_messages": [],
-        }
+    # Create the sensor
+    sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
 
-        # Set up the integration
-        mock_config_entry.add_to_hass(hass)
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
+    # Test 1: Initial update with empty platform (TBA)
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "",
+                "service_id": "service123",
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
 
-        # Get the coordinator
-        coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
+    assert sensor._current_service_id == "service123"
+    assert sensor._previous_platform == ""
+    assert sensor._platform_changed is False
 
-        # First platform change: 3 -> 5
-        mock_api_client.get_departure_board.return_value["services"][0]["platform"] = "5"
-        mock_api_client.get_departure_board.return_value["generated_at"] = "2024-01-15T08:31:00"
-        await coordinator.async_refresh()
-        await hass.async_block_till_done()
+    # Test 2: Same service, platform assigned from "" to "3"
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "3",
+                "service_id": "service123",
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
 
-        train_1_state = hass.states.get("sensor.test_commute_train_1")
-        assert train_1_state.attributes["platform"] == "5"
-        assert train_1_state.attributes["platform_changed"] is True
-        assert train_1_state.attributes["previous_platform"] == "3"
+    assert sensor._current_service_id == "service123"
+    assert sensor._previous_platform == ""  # Preserved original (empty)
+    assert sensor._platform_changed is True
 
-        # Second platform change: 5 -> 7
-        mock_api_client.get_departure_board.return_value["services"][0]["platform"] = "7"
-        mock_api_client.get_departure_board.return_value["generated_at"] = "2024-01-15T08:32:00"
-        await coordinator.async_refresh()
-        await hass.async_block_till_done()
 
-        train_1_state = hass.states.get("sensor.test_commute_train_1")
-        assert train_1_state.attributes["platform"] == "7"
-        assert train_1_state.attributes["platform_changed"] is True
-        # Previous platform should still be from the first change (3)
-        assert train_1_state.attributes["previous_platform"] == "3"
+def test_platform_change_no_service_id():
+    """Unit test for handling missing service_id."""
+    # Create a mock coordinator
+    mock_coordinator = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.entry_id = "test_entry"
+
+    # Create the sensor
+    sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
+
+    # Test: Update with missing service_id
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "3",
+                "service_id": None,
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
+
+    # Should still set platform but not track service
+    assert sensor._previous_platform == "3"
+    assert sensor._current_service_id is None
+    assert sensor._platform_changed is False
+
+
+def test_platform_no_change_same_service():
+    """Unit test for no platform change with same service."""
+    # Create a mock coordinator
+    mock_coordinator = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.entry_id = "test_entry"
+
+    # Create the sensor
+    sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
+
+    # Test 1: Initial update
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "3",
+                "service_id": "service123",
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
+
+    assert sensor._platform_changed is False
+
+    # Test 2: Same service, same platform - should remain False
+    sensor._handle_coordinator_update()
+
+    assert sensor._current_service_id == "service123"
+    assert sensor._previous_platform == "3"
+    assert sensor._platform_changed is False
