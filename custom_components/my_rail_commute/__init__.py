@@ -6,6 +6,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import NationalRailAPI
@@ -101,6 +102,52 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
+async def async_cleanup_stale_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove stale train entities when num_services is reduced.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry
+    """
+    # Get the new num_services from options (or data if not in options)
+    config = {**entry.data, **entry.options}
+    new_num_services = config.get(CONF_NUM_SERVICES, 5)
+
+    _LOGGER.debug("Cleaning up stale entities (keeping %s trains)", new_num_services)
+
+    # Get entity registry
+    entity_reg = er.async_get(hass)
+
+    # Find all train entities for this config entry
+    entities_to_remove = []
+    for entity in er.async_entries_for_config_entry(entity_reg, entry.entry_id):
+        # Check if this is a train entity with a number > new_num_services
+        if entity.unique_id.startswith(f"{entry.entry_id}_train_"):
+            # Extract train number from unique_id (format: {entry_id}_train_{number})
+            try:
+                train_number = int(entity.unique_id.split("_train_")[-1])
+                if train_number > new_num_services:
+                    entities_to_remove.append((entity.entity_id, train_number))
+                    _LOGGER.debug(
+                        "Found stale train entity: %s (train_%s)",
+                        entity.entity_id,
+                        train_number,
+                    )
+            except (ValueError, IndexError):
+                # Skip if we can't parse the train number
+                continue
+
+    # Remove stale entities
+    for entity_id, train_number in entities_to_remove:
+        _LOGGER.info("Removing stale entity: %s (train_%s)", entity_id, train_number)
+        entity_reg.async_remove(entity_id)
+
+    if entities_to_remove:
+        _LOGGER.info("Removed %s stale train entities", len(entities_to_remove))
+    else:
+        _LOGGER.debug("No stale entities to remove")
+
+
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when options change.
 
@@ -109,6 +156,10 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         entry: Config entry
     """
     _LOGGER.debug("Reloading My Rail Commute integration")
+
+    # Clean up stale entities before reloading
+    await async_cleanup_stale_entities(hass, entry)
+
     await hass.config_entries.async_reload(entry.entry_id)
 
 
