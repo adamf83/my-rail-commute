@@ -24,7 +24,7 @@ async def test_train_sensor_platform_change_detection(
         "services": [
             {
                 "scheduled_departure": "08:35",
-                "expected_departure": "On time",
+                "expected_departure": "08:35",
                 "platform": "3",
                 "operator": "Great Western Railway",
                 "service_id": "service123",
@@ -35,7 +35,7 @@ async def test_train_sensor_platform_change_detection(
                 "cancellation_reason": "",
                 "delay_reason": "",
                 "scheduled_arrival": "08:55",
-                "estimated_arrival": "On time",
+                "estimated_arrival": "08:55",
                 "destination": "Reading",
             }
         ],
@@ -69,7 +69,7 @@ async def test_train_sensor_platform_change_detection(
         "services": [
             {
                 "scheduled_departure": "08:35",
-                "expected_departure": "On time",
+                "expected_departure": "08:35",
                 "platform": "5",  # Platform changed from 3 to 5
                 "operator": "Great Western Railway",
                 "service_id": "service123",  # Same service
@@ -80,7 +80,7 @@ async def test_train_sensor_platform_change_detection(
                 "cancellation_reason": "",
                 "delay_reason": "",
                 "scheduled_arrival": "08:55",
-                "estimated_arrival": "On time",
+                "estimated_arrival": "08:55",
                 "destination": "Reading",
             }
         ],
@@ -119,7 +119,7 @@ async def test_train_sensor_no_platform_change_for_different_service(
         "services": [
             {
                 "scheduled_departure": "08:35",
-                "expected_departure": "On time",
+                "expected_departure": "08:35",
                 "platform": "3",
                 "operator": "Great Western Railway",
                 "service_id": "service123",
@@ -130,7 +130,7 @@ async def test_train_sensor_no_platform_change_for_different_service(
                 "cancellation_reason": "",
                 "delay_reason": "",
                 "scheduled_arrival": "08:55",
-                "estimated_arrival": "On time",
+                "estimated_arrival": "08:55",
                 "destination": "Reading",
             }
         ],
@@ -155,7 +155,7 @@ async def test_train_sensor_no_platform_change_for_different_service(
         "services": [
             {
                 "scheduled_departure": "08:50",
-                "expected_departure": "On time",
+                "expected_departure": "08:50",
                 "platform": "4",  # Different platform
                 "operator": "Great Western Railway",
                 "service_id": "service456",  # Different service
@@ -166,7 +166,7 @@ async def test_train_sensor_no_platform_change_for_different_service(
                 "cancellation_reason": "",
                 "delay_reason": "",
                 "scheduled_arrival": "09:10",
-                "estimated_arrival": "On time",
+                "estimated_arrival": "09:10",
                 "destination": "Reading",
             }
         ],
@@ -199,7 +199,7 @@ async def test_train_sensor_platform_change_from_tba(
         "services": [
             {
                 "scheduled_departure": "08:35",
-                "expected_departure": "On time",
+                "expected_departure": "08:35",
                 "platform": "",  # Platform TBA
                 "operator": "Great Western Railway",
                 "service_id": "service123",
@@ -210,7 +210,7 @@ async def test_train_sensor_platform_change_from_tba(
                 "cancellation_reason": "",
                 "delay_reason": "",
                 "scheduled_arrival": "08:55",
-                "estimated_arrival": "On time",
+                "estimated_arrival": "08:55",
                 "destination": "Reading",
             }
         ],
@@ -235,7 +235,7 @@ async def test_train_sensor_platform_change_from_tba(
         "services": [
             {
                 "scheduled_departure": "08:35",
-                "expected_departure": "On time",
+                "expected_departure": "08:35",
                 "platform": "3",  # Platform assigned
                 "operator": "Great Western Railway",
                 "service_id": "service123",
@@ -246,7 +246,7 @@ async def test_train_sensor_platform_change_from_tba(
                 "cancellation_reason": "",
                 "delay_reason": "",
                 "scheduled_arrival": "08:55",
-                "estimated_arrival": "On time",
+                "estimated_arrival": "08:55",
                 "destination": "Reading",
             }
         ],
@@ -279,7 +279,7 @@ async def test_train_sensor_multiple_platform_changes(
         "services": [
             {
                 "scheduled_departure": "08:35",
-                "expected_departure": "On time",
+                "expected_departure": "08:35",
                 "platform": "3",
                 "operator": "Great Western Railway",
                 "service_id": "service123",
@@ -290,7 +290,7 @@ async def test_train_sensor_multiple_platform_changes(
                 "cancellation_reason": "",
                 "delay_reason": "",
                 "scheduled_arrival": "08:55",
-                "estimated_arrival": "On time",
+                "estimated_arrival": "08:55",
                 "destination": "Reading",
             }
         ],
