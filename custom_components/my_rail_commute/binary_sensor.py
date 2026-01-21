@@ -87,7 +87,12 @@ class NationalRailCommuteBinarySensor(
 
 
 class DisruptionSensor(NationalRailCommuteBinarySensor):
-    """Binary sensor for severe disruption detection."""
+    """Binary sensor for any disruption detection.
+
+    Simplified sensor for automation triggers:
+    - ON: Any delays or cancellations (Status != Normal)
+    - OFF: All trains on time (Status == Normal)
+    """
 
     def __init__(
         self,
@@ -102,27 +107,32 @@ class DisruptionSensor(NationalRailCommuteBinarySensor):
         """
         super().__init__(coordinator, entry)
 
-        self._attr_name = "Severe Disruption"
+        self._attr_name = "Has Disruption"
         self._attr_unique_id = f"{entry.entry_id}_disruption"
-        self._attr_device_class = BinarySensorDeviceClass.PROBLEM
+        # No device_class - removes "Problem" display in UI
         self._attr_icon = "mdi:alert-circle"
 
     @property
     def is_on(self) -> bool:
-        """Return true if there is severe disruption.
+        """Return true if there is any disruption.
+
+        Uses the unified overall_status from coordinator.
 
         Returns:
-            True if disruption detected, False otherwise
+            True if any disruption (Status != Normal), False otherwise
         """
         if not self.coordinator.data:
             return False
 
-        disruption = self.coordinator.data.get("disruption", {})
-        return disruption.get("has_disruption", False)
+        # Simple logic: ON if status is anything other than Normal
+        overall_status = self.coordinator.data.get("overall_status", "Normal")
+        return overall_status != "Normal"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional state attributes.
+
+        Provides detailed disruption information including the current status level.
 
         Returns:
             Dictionary of attributes
@@ -130,16 +140,18 @@ class DisruptionSensor(NationalRailCommuteBinarySensor):
         if not self.coordinator.data:
             return {}
 
-        disruption = self.coordinator.data.get("disruption", {})
+        data = self.coordinator.data
+        disruption = data.get("disruption", {})
 
         attributes = {
+            "current_status": data.get("overall_status", "Normal"),
             ATTR_DISRUPTION_TYPE: disruption.get("disruption_type"),
             ATTR_AFFECTED_SERVICES: disruption.get("affected_services", 0),
             ATTR_CANCELLED_COUNT: disruption.get("cancelled_services", 0),
             ATTR_DELAYED_COUNT: disruption.get("delayed_services", 0),
             ATTR_MAX_DELAY: disruption.get("max_delay_minutes", 0),
             ATTR_DISRUPTION_REASONS: disruption.get("disruption_reasons", []),
-            "last_checked": self.coordinator.data.get("last_updated"),
+            "last_checked": data.get("last_updated"),
         }
 
         return attributes
