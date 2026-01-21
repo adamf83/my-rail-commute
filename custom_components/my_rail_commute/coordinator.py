@@ -15,13 +15,16 @@ from .const import (
     CONF_DISRUPTION_MULTIPLE_COUNT,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
+    CONF_MAJOR_DELAY_THRESHOLD,
+    CONF_MINOR_DELAY_THRESHOLD,
+    CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
+    CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
-    CONF_NIGHT_UPDATES,
-    DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
-    DISRUPTION_DELAY_THRESHOLD_SINGLE,
-    DISRUPTION_MULTIPLE_SERVICES,
+    DEFAULT_MAJOR_DELAY_THRESHOLD,
+    DEFAULT_MINOR_DELAY_THRESHOLD,
+    DEFAULT_SEVERE_DELAY_THRESHOLD,
     DOMAIN,
     NIGHT_HOURS,
     PEAK_HOURS,
@@ -29,9 +32,7 @@ from .const import (
     STATUS_CRITICAL,
     STATUS_DELAYED,
     STATUS_MAJOR_DELAYS,
-    STATUS_MAJOR_DELAY_THRESHOLD,
     STATUS_MINOR_DELAYS,
-    STATUS_MINOR_DELAY_THRESHOLD,
     STATUS_NORMAL,
     STATUS_ON_TIME,
     STATUS_SEVERE_DISRUPTION,
@@ -71,16 +72,24 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         self.num_services = int(config[CONF_NUM_SERVICES])
         self.night_updates_enabled = config.get(CONF_NIGHT_UPDATES, False)
 
-        # Disruption thresholds (per-service configuration)
-        self.disruption_single_delay = int(
-            config.get(CONF_DISRUPTION_SINGLE_DELAY, DISRUPTION_DELAY_THRESHOLD_SINGLE)
-        )
-        self.disruption_multiple_delay = int(
-            config.get(CONF_DISRUPTION_MULTIPLE_DELAY, DISRUPTION_DELAY_THRESHOLD_MULTIPLE)
-        )
-        self.disruption_multiple_count = int(
-            config.get(CONF_DISRUPTION_MULTIPLE_COUNT, DISRUPTION_MULTIPLE_SERVICES)
-        )
+        # Delay thresholds (user-configurable)
+        # Support migration from old config format
+        if CONF_SEVERE_DELAY_THRESHOLD in config:
+            # New format
+            self.severe_delay_threshold = int(config[CONF_SEVERE_DELAY_THRESHOLD])
+            self.major_delay_threshold = int(config[CONF_MAJOR_DELAY_THRESHOLD])
+            self.minor_delay_threshold = int(config[CONF_MINOR_DELAY_THRESHOLD])
+        else:
+            # Old format - migrate by using single delay threshold for severe
+            # and multiple delay threshold for major, default for minor
+            _LOGGER.info("Migrating from old threshold configuration format")
+            self.severe_delay_threshold = int(
+                config.get(CONF_DISRUPTION_SINGLE_DELAY, DEFAULT_SEVERE_DELAY_THRESHOLD)
+            )
+            self.major_delay_threshold = int(
+                config.get(CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD)
+            )
+            self.minor_delay_threshold = DEFAULT_MINOR_DELAY_THRESHOLD
 
         # Station names (will be populated on first update)
         self.origin_name: str | None = None
@@ -292,11 +301,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             1 for s in services if s.get("status") == STATUS_CANCELLED
         )
 
-        # Determine disruption status
-        disruption_data = self._calculate_disruption(services)
+        # Calculate overall status using user-configurable thresholds
+        overall_status = self._calculate_overall_status(services)
 
-        # Calculate overall status (single source of truth)
-        overall_status = self._calculate_overall_status(services, disruption_data)
+        # Collect delay information for attributes
+        delay_info = self._collect_delay_info(services)
 
         # Build summary
         summary = self._build_summary(on_time_count, delayed_count, cancelled_count)
@@ -321,28 +330,24 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "delayed_count": delayed_count,
             "cancelled_count": cancelled_count,
             "next_train": next_train,
-            "disruption": disruption_data,
             "overall_status": overall_status,  # Unified status for all sensors
+            "max_delay_minutes": delay_info["max_delay_minutes"],
+            "disruption_reasons": delay_info["disruption_reasons"],
             "summary": summary,
             "last_updated": dt_util.now().isoformat(),
             "next_update": (dt_util.now() + self.update_interval).isoformat(),
             "nrcc_messages": data.get("nrcc_messages", []),
         }
 
-    def _calculate_disruption(self, services: list[dict[str, Any]]) -> dict[str, Any]:
-        """Calculate if there is severe disruption.
+    def _collect_delay_info(self, services: list[dict[str, Any]]) -> dict[str, Any]:
+        """Collect delay information for display attributes.
 
         Args:
             services: List of service data
 
         Returns:
-            Disruption data dictionary
+            Dictionary with max_delay_minutes and disruption_reasons
         """
-        has_disruption = False
-        disruption_type = None
-        affected_services = 0
-        cancelled_services = 0
-        delayed_services = 0
         max_delay = 0
         disruption_reasons = []
 
@@ -350,79 +355,39 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             is_cancelled = service.get("is_cancelled", False)
             delay_minutes = service.get("delay_minutes", 0)
 
-            # Check for cancellations
             if is_cancelled:
-                has_disruption = True
-                disruption_type = "cancellation"
-                cancelled_services += 1
-                affected_services += 1
-
-                # Add cancellation reason
+                # Collect cancellation reason
                 reason = service.get("cancellation_reason")
                 if reason and reason not in disruption_reasons:
                     disruption_reasons.append(reason)
-
-            # Check for significant delays
-            elif delay_minutes >= self.disruption_single_delay:
-                has_disruption = True
-                if disruption_type != "cancellation":
-                    disruption_type = "delay"
-                delayed_services += 1
-                affected_services += 1
+            elif delay_minutes > 0:
+                # Track max delay
                 max_delay = max(max_delay, delay_minutes)
 
-                # Add delay reason
+                # Collect delay reason
                 reason = service.get("delay_reason")
                 if reason and reason not in disruption_reasons:
                     disruption_reasons.append(reason)
-
-            elif delay_minutes >= self.disruption_multiple_delay:
-                delayed_services += 1
-                max_delay = max(max_delay, delay_minutes)
-
-                # Add delay reason
-                reason = service.get("delay_reason")
-                if reason and reason not in disruption_reasons:
-                    disruption_reasons.append(reason)
-
-        # Check for multiple moderate delays
-        if (
-            not has_disruption
-            and delayed_services >= self.disruption_multiple_count
-        ):
-            has_disruption = True
-            disruption_type = "delay"
-            affected_services = delayed_services
-
-        # Set disruption type to "multiple" if both cancellations and delays
-        if cancelled_services > 0 and delayed_services > 0 and has_disruption:
-            disruption_type = "multiple"
 
         return {
-            "has_disruption": has_disruption,
-            "disruption_type": disruption_type,
-            "affected_services": affected_services,
-            "cancelled_services": cancelled_services,
-            "delayed_services": delayed_services,
             "max_delay_minutes": max_delay,
             "disruption_reasons": disruption_reasons,
         }
 
-    def _calculate_overall_status(
-        self, services: list[dict[str, Any]], disruption_data: dict[str, Any]
-    ) -> str:
-        """Calculate overall commute status (single source of truth).
+    def _calculate_overall_status(self, services: list[dict[str, Any]]) -> str:
+        """Calculate overall commute status using user-configurable thresholds.
 
-        This method provides a unified status hierarchy that all sensors can reference:
-        - Critical: Any cancellations (highest priority)
-        - Severe Disruption: Meets user-configurable disruption thresholds
-        - Major Delays: Delays ≥10 minutes (but below disruption threshold)
-        - Minor Delays: Delays ≥1 minute (but below major threshold)
-        - Normal: All trains on time
+        This method provides a unified status hierarchy checked in priority order:
+        1. Critical: Any cancellations (highest priority)
+        2. Severe Disruption: Any train ≥ severe_delay_threshold
+        3. Major Delays: Any train ≥ major_delay_threshold
+        4. Minor Delays: Any train ≥ minor_delay_threshold
+        5. Normal: All trains on time
+
+        All thresholds are user-configurable with validation ensuring proper hierarchy.
 
         Args:
             services: List of service data
-            disruption_data: Disruption analysis from _calculate_disruption()
 
         Returns:
             Status string: Normal, Minor Delays, Major Delays, Severe Disruption, or Critical
@@ -431,34 +396,24 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             return STATUS_NORMAL
 
         # Check for cancellations first (CRITICAL - highest priority)
-        cancelled_count = sum(1 for s in services if s.get("is_cancelled", False))
-        if cancelled_count > 0:
+        if any(s.get("is_cancelled", False) for s in services):
             return STATUS_CRITICAL
 
-        # Check if disruption thresholds are met (SEVERE DISRUPTION)
-        # This uses the user's configurable thresholds
-        if disruption_data.get("has_disruption", False):
+        # Get maximum delay from non-cancelled services
+        max_delay = max(
+            (s.get("delay_minutes", 0) for s in services if not s.get("is_cancelled", False)),
+            default=0
+        )
+
+        # Check thresholds in priority order (high to low)
+        if max_delay >= self.severe_delay_threshold:
             return STATUS_SEVERE_DISRUPTION
-
-        # Check for major delays (≥10 minutes)
-        major_delays = sum(
-            1 for s in services
-            if not s.get("is_cancelled", False)
-            and s.get("delay_minutes", 0) >= STATUS_MAJOR_DELAY_THRESHOLD
-        )
-        if major_delays > 0:
+        if max_delay >= self.major_delay_threshold:
             return STATUS_MAJOR_DELAYS
-
-        # Check for minor delays (≥1 minute)
-        minor_delays = sum(
-            1 for s in services
-            if not s.get("is_cancelled", False)
-            and s.get("delay_minutes", 0) >= STATUS_MINOR_DELAY_THRESHOLD
-        )
-        if minor_delays > 0:
+        if max_delay >= self.minor_delay_threshold:
             return STATUS_MINOR_DELAYS
 
-        # Everything is on time
+        # Everything is on time (or below minor threshold)
         return STATUS_NORMAL
 
     def _build_summary(

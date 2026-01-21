@@ -23,9 +23,9 @@
           "commute_name": "Commute Name",
           "time_window": "Time Window (minutes)",
           "num_services": "Number of Services to Track",
-          "disruption_single_delay": "Severe Disruption Threshold - Single Train (minutes)",
-          "disruption_multiple_delay": "Severe Disruption Threshold - Multiple Trains (minutes)",
-          "disruption_multiple_count": "Number of Trains for Severe Disruption Alert",
+          "severe_delay_threshold": "Severe Disruption Threshold (minutes)",
+          "major_delay_threshold": "Major Delays Threshold (minutes)",
+          "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates"
         }
       }
@@ -35,7 +35,7 @@
       "cannot_connect": "Unable to connect to Rail API. Please try again later.",
       "invalid_station": "Invalid station code. Please use a valid 3-letter CRS code.",
       "same_station": "Origin and destination stations must be different.",
-      "invalid_thresholds": "Single train delay threshold must be greater than or equal to multiple trains threshold.",
+      "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
       "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {
@@ -50,15 +50,15 @@
         "data": {
           "time_window": "Time Window (minutes)",
           "num_services": "Number of Services to Track",
-          "disruption_single_delay": "Severe Disruption Threshold - Single Train (minutes)",
-          "disruption_multiple_delay": "Severe Disruption Threshold - Multiple Trains (minutes)",
-          "disruption_multiple_count": "Number of Trains for Severe Disruption Alert",
+          "severe_delay_threshold": "Severe Disruption Threshold (minutes)",
+          "major_delay_threshold": "Major Delays Threshold (minutes)",
+          "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates"
         }
       }
     },
     "error": {
-      "invalid_thresholds": "Single train delay threshold must be greater than or equal to multiple trains threshold."
+      "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute."
     }
   },
   "entity": {

@@ -15,11 +15,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    ATTR_AFFECTED_SERVICES,
     ATTR_CANCELLED_COUNT,
     ATTR_DELAYED_COUNT,
     ATTR_DISRUPTION_REASONS,
-    ATTR_DISRUPTION_TYPE,
     ATTR_MAX_DELAY,
     CONF_COMMUTE_NAME,
     DOMAIN,
@@ -142,16 +140,13 @@ class DisruptionSensor(NationalRailCommuteBinarySensor):
             return {}
 
         data = self.coordinator.data
-        disruption = data.get("disruption", {})
 
         attributes = {
             "current_status": data.get("overall_status", "Normal"),
-            ATTR_DISRUPTION_TYPE: disruption.get("disruption_type"),
-            ATTR_AFFECTED_SERVICES: disruption.get("affected_services", 0),
             ATTR_CANCELLED_COUNT: data.get("cancelled_count", 0),
             ATTR_DELAYED_COUNT: data.get("delayed_count", 0),
-            ATTR_MAX_DELAY: disruption.get("max_delay_minutes", 0),
-            ATTR_DISRUPTION_REASONS: disruption.get("disruption_reasons", []),
+            ATTR_MAX_DELAY: data.get("max_delay_minutes", 0),
+            ATTR_DISRUPTION_REASONS: data.get("disruption_reasons", []),
             "last_checked": data.get("last_updated"),
         }
 

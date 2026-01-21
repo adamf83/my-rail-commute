@@ -25,24 +25,25 @@ from .const import (
     CONF_DISRUPTION_MULTIPLE_COUNT,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
+    CONF_MAJOR_DELAY_THRESHOLD,
+    CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
+    CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
+    DEFAULT_MAJOR_DELAY_THRESHOLD,
+    DEFAULT_MINOR_DELAY_THRESHOLD,
     DEFAULT_NAME,
     DEFAULT_NIGHT_UPDATES,
     DEFAULT_NUM_SERVICES,
+    DEFAULT_SEVERE_DELAY_THRESHOLD,
     DEFAULT_TIME_WINDOW,
-    DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
-    DISRUPTION_DELAY_THRESHOLD_SINGLE,
-    DISRUPTION_MULTIPLE_SERVICES,
     DOMAIN,
-    MAX_DISRUPTION_COUNT,
-    MAX_DISRUPTION_DELAY,
+    MAX_DELAY_THRESHOLD,
     MAX_NUM_SERVICES,
     MAX_TIME_WINDOW,
-    MIN_DISRUPTION_COUNT,
-    MIN_DISRUPTION_DELAY,
+    MIN_DELAY_THRESHOLD,
     MIN_NUM_SERVICES,
     MIN_TIME_WINDOW,
 )
@@ -118,24 +119,25 @@ async def validate_stations(
     }
 
 
-def validate_disruption_thresholds(
-    single_delay: int,
-    multiple_delay: int,
+def validate_delay_thresholds(
+    severe: int,
+    major: int,
+    minor: int,
 ) -> None:
-    """Validate disruption threshold values are logical.
+    """Validate delay threshold values maintain proper hierarchy.
 
     Args:
-        single_delay: Single train delay threshold (minutes)
-        multiple_delay: Multiple trains delay threshold (minutes)
+        severe: Severe disruption threshold (minutes)
+        major: Major delays threshold (minutes)
+        minor: Minor delays threshold (minutes)
 
     Raises:
-        ValueError: If thresholds are illogical
+        ValueError: If thresholds don't maintain hierarchy (severe >= major >= minor >= 1)
     """
-    if single_delay < multiple_delay:
+    if not (severe >= major >= minor >= MIN_DELAY_THRESHOLD):
         raise ValueError(
-            "Single train delay threshold must be greater than or equal to "
-            "multiple trains threshold. A single train should require a longer "
-            "delay to trigger severe disruption than multiple trains."
+            f"Delay thresholds must maintain hierarchy: "
+            f"severe ({severe}) >= major ({major}) >= minor ({minor}) >= {MIN_DELAY_THRESHOLD}"
         )
 
 
@@ -269,15 +271,16 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate disruption thresholds
+            # Validate delay thresholds
             try:
-                validate_disruption_thresholds(
-                    user_input[CONF_DISRUPTION_SINGLE_DELAY],
-                    user_input[CONF_DISRUPTION_MULTIPLE_DELAY],
+                validate_delay_thresholds(
+                    user_input[CONF_SEVERE_DELAY_THRESHOLD],
+                    user_input[CONF_MAJOR_DELAY_THRESHOLD],
+                    user_input[CONF_MINOR_DELAY_THRESHOLD],
                 )
             except ValueError as err:
                 errors["base"] = "invalid_thresholds"
-                _LOGGER.error("Invalid disruption thresholds: %s", err)
+                _LOGGER.error("Invalid delay thresholds: %s", err)
 
             if not errors:
                 # Create the config entry
@@ -302,9 +305,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_TIME_WINDOW: user_input[CONF_TIME_WINDOW],
                     CONF_NUM_SERVICES: user_input[CONF_NUM_SERVICES],
                     CONF_NIGHT_UPDATES: user_input[CONF_NIGHT_UPDATES],
-                    CONF_DISRUPTION_SINGLE_DELAY: user_input[CONF_DISRUPTION_SINGLE_DELAY],
-                    CONF_DISRUPTION_MULTIPLE_DELAY: user_input[CONF_DISRUPTION_MULTIPLE_DELAY],
-                    CONF_DISRUPTION_MULTIPLE_COUNT: user_input[CONF_DISRUPTION_MULTIPLE_COUNT],
+                    CONF_SEVERE_DELAY_THRESHOLD: user_input[CONF_SEVERE_DELAY_THRESHOLD],
+                    CONF_MAJOR_DELAY_THRESHOLD: user_input[CONF_MAJOR_DELAY_THRESHOLD],
+                    CONF_MINOR_DELAY_THRESHOLD: user_input[CONF_MINOR_DELAY_THRESHOLD],
                 },
             )
 
@@ -341,37 +344,38 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                 ),
                 vol.Required(
-                    CONF_DISRUPTION_SINGLE_DELAY,
-                    default=DISRUPTION_DELAY_THRESHOLD_SINGLE,
+                    CONF_SEVERE_DELAY_THRESHOLD,
+                    default=DEFAULT_SEVERE_DELAY_THRESHOLD,
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=MIN_DISRUPTION_DELAY,
-                        max=MAX_DISRUPTION_DELAY,
+                        min=MIN_DELAY_THRESHOLD,
+                        max=MAX_DELAY_THRESHOLD,
                         step=1,
                         unit_of_measurement="minutes",
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
                 vol.Required(
-                    CONF_DISRUPTION_MULTIPLE_DELAY,
-                    default=DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
+                    CONF_MAJOR_DELAY_THRESHOLD,
+                    default=DEFAULT_MAJOR_DELAY_THRESHOLD,
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=MIN_DISRUPTION_DELAY,
-                        max=MAX_DISRUPTION_DELAY,
+                        min=MIN_DELAY_THRESHOLD,
+                        max=MAX_DELAY_THRESHOLD,
                         step=1,
                         unit_of_measurement="minutes",
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
                 vol.Required(
-                    CONF_DISRUPTION_MULTIPLE_COUNT,
-                    default=DISRUPTION_MULTIPLE_SERVICES,
+                    CONF_MINOR_DELAY_THRESHOLD,
+                    default=DEFAULT_MINOR_DELAY_THRESHOLD,
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=MIN_DISRUPTION_COUNT,
-                        max=MAX_DISRUPTION_COUNT,
+                        min=MIN_DELAY_THRESHOLD,
+                        max=MAX_DELAY_THRESHOLD,
                         step=1,
+                        unit_of_measurement="minutes",
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
@@ -425,15 +429,16 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate disruption thresholds
+            # Validate delay thresholds
             try:
-                validate_disruption_thresholds(
-                    user_input[CONF_DISRUPTION_SINGLE_DELAY],
-                    user_input[CONF_DISRUPTION_MULTIPLE_DELAY],
+                validate_delay_thresholds(
+                    user_input[CONF_SEVERE_DELAY_THRESHOLD],
+                    user_input[CONF_MAJOR_DELAY_THRESHOLD],
+                    user_input[CONF_MINOR_DELAY_THRESHOLD],
                 )
             except ValueError as err:
                 errors["base"] = "invalid_thresholds"
-                _LOGGER.error("Invalid disruption thresholds: %s", err)
+                _LOGGER.error("Invalid delay thresholds: %s", err)
 
             if not errors:
                 # Update the config entry
@@ -475,46 +480,55 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                     ),
                 ),
                 vol.Required(
-                    CONF_DISRUPTION_SINGLE_DELAY,
+                    CONF_SEVERE_DELAY_THRESHOLD,
                     default=options.get(
-                        CONF_DISRUPTION_SINGLE_DELAY,
-                        current_data.get(CONF_DISRUPTION_SINGLE_DELAY, DISRUPTION_DELAY_THRESHOLD_SINGLE),
+                        CONF_SEVERE_DELAY_THRESHOLD,
+                        current_data.get(
+                            CONF_SEVERE_DELAY_THRESHOLD,
+                            # Migration from old config
+                            current_data.get(CONF_DISRUPTION_SINGLE_DELAY, DEFAULT_SEVERE_DELAY_THRESHOLD),
+                        ),
                     ),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=MIN_DISRUPTION_DELAY,
-                        max=MAX_DISRUPTION_DELAY,
+                        min=MIN_DELAY_THRESHOLD,
+                        max=MAX_DELAY_THRESHOLD,
                         step=1,
                         unit_of_measurement="minutes",
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
                 vol.Required(
-                    CONF_DISRUPTION_MULTIPLE_DELAY,
+                    CONF_MAJOR_DELAY_THRESHOLD,
                     default=options.get(
-                        CONF_DISRUPTION_MULTIPLE_DELAY,
-                        current_data.get(CONF_DISRUPTION_MULTIPLE_DELAY, DISRUPTION_DELAY_THRESHOLD_MULTIPLE),
+                        CONF_MAJOR_DELAY_THRESHOLD,
+                        current_data.get(
+                            CONF_MAJOR_DELAY_THRESHOLD,
+                            # Migration from old config
+                            current_data.get(CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD),
+                        ),
                     ),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=MIN_DISRUPTION_DELAY,
-                        max=MAX_DISRUPTION_DELAY,
+                        min=MIN_DELAY_THRESHOLD,
+                        max=MAX_DELAY_THRESHOLD,
                         step=1,
                         unit_of_measurement="minutes",
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
                 vol.Required(
-                    CONF_DISRUPTION_MULTIPLE_COUNT,
+                    CONF_MINOR_DELAY_THRESHOLD,
                     default=options.get(
-                        CONF_DISRUPTION_MULTIPLE_COUNT,
-                        current_data.get(CONF_DISRUPTION_MULTIPLE_COUNT, DISRUPTION_MULTIPLE_SERVICES),
+                        CONF_MINOR_DELAY_THRESHOLD,
+                        current_data.get(CONF_MINOR_DELAY_THRESHOLD, DEFAULT_MINOR_DELAY_THRESHOLD),
                     ),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=MIN_DISRUPTION_COUNT,
-                        max=MAX_DISRUPTION_COUNT,
+                        min=MIN_DELAY_THRESHOLD,
+                        max=MAX_DELAY_THRESHOLD,
                         step=1,
+                        unit_of_measurement="minutes",
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
