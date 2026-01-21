@@ -34,16 +34,18 @@ The integration creates multiple sensors for each configured commute:
 
 ### 2. Commute Status Sensor
 - **Entity ID**: `sensor.{commute_name}_status`
-- **State**: Overall commute status for easy automation triggers
+- **State**: Overall commute status for easy automation triggers (hierarchical - highest severity wins)
   - `Normal` - All trains running on time
   - `Minor Delays` - One or more trains delayed 1-9 minutes
   - `Major Delays` - One or more trains delayed 10+ minutes
-  - `Cancellations` - One or more trains cancelled
+  - `Severe Disruption` - Disruption thresholds met (configurable)
+  - `Critical` - One or more trains cancelled (highest priority)
 - **Icon**: Dynamic based on status
   - `mdi:train` - Normal
   - `mdi:train-variant` - Minor Delays
   - `mdi:clock-alert` - Major Delays
-  - `mdi:alert-circle` - Cancellations
+  - `mdi:alert-circle` - Severe Disruption
+  - `mdi:alert-octagon` - Critical
 - **Attributes**:
   - `total_trains`: Total tracked trains
   - `on_time_count`: Number of on-time trains
@@ -51,6 +53,7 @@ The integration creates multiple sensors for each configured commute:
   - `major_delays_count`: Number of trains with 10+ minute delays
   - `cancelled_count`: Number of cancelled trains
   - `max_delay_minutes`: Maximum delay across all trains
+  - `disruption_threshold_met`: Boolean indicating if user-configured disruption thresholds are met
   - Origin/destination information
   - Last updated timestamp
 - **Use Case**: Simple state-based automation triggers without template conditions
@@ -70,6 +73,8 @@ The integration creates multiple sensors for each configured commute:
   - `scheduled_departure`: Original scheduled departure time (HH:MM)
   - `expected_departure`: Expected departure time including delays (HH:MM)
   - `platform`: Platform number or "TBA"
+  - `platform_changed`: Boolean indicating if platform has changed from original
+  - `previous_platform`: Previous platform number if changed (null otherwise)
   - `operator`: Train operating company
   - `service_id`: Unique service identifier
   - `status`: Internal status code
@@ -94,15 +99,19 @@ The integration creates multiple sensors for each configured commute:
   - `mdi:alert-circle` - Cancelled
 - **Attributes**: Same as Next Train Sensor, with `train_number` indicating position (1 = next train, 2 = second train, etc.)
   - Includes `departure_time` attribute showing the display time (HH:MM)
+  - Includes `platform_changed` and `previous_platform` for platform change detection
 - **Use Case**: Track multiple upcoming trains individually for more detailed monitoring and automations
 
-**Note**: The Next Train Sensor mirrors Train 1 for convenience. Train sensors automatically filter out departed trains.
+**Note**: The Next Train Sensor mirrors Train 1 for convenience. Train sensors automatically filter out departed trains (2-minute grace period after scheduled departure).
 
 ### 5. Has Disruption Binary Sensor
 - **Entity ID**: `binary_sensor.{commute_name}_has_disruption`
-- **State**: "Yes" when disruption detected, "No" when services are normal
+- **State**: "on" when disruption detected, "off" when services are normal
+- **Icon**: Dynamic based on disruption status
+  - `mdi:alert-circle` - When on (disruption detected)
+  - `mdi:check-circle` - When off (normal service)
 - **Attributes**:
-  - `current_status`: Current overall status (Normal, Minor Delays, Major Delays, or Cancellations)
+  - `current_status`: Current overall status (Normal, Minor Delays, Major Delays, Severe Disruption, or Critical)
   - `disruption_type`: Type of disruption ("cancellation", "delay", "multiple", or null)
   - `affected_services`: Number of services affected
   - `cancelled_services`: Count of cancelled trains
@@ -110,7 +119,7 @@ The integration creates multiple sensors for each configured commute:
   - `max_delay_minutes`: Maximum delay in minutes
   - `disruption_reasons`: List of reasons for disruptions
   - `last_checked`: Timestamp of last update
-- **Trigger Logic**: Binary sensor is "Yes" (on) when status is anything other than Normal
+- **Trigger Logic**: Binary sensor is "on" when status is anything other than Normal
 
 ## Prerequisites
 
@@ -179,9 +188,18 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 - **Time Window**: How many minutes ahead to look (15-120 minutes, default: 60)
 - **Number of Services**: How many trains to track (1-10, default: 3)
 - **Enable Night-Time Updates**: Keep polling during night hours (23:00-05:00)
-- **Disruption Single Delay**: Minutes of delay for one train to trigger disruption (5-60 minutes, default: 15)
-- **Disruption Multiple Delay**: Minutes of delay for multiple trains to trigger disruption (5-60 minutes, default: 10)
-- **Disruption Multiple Count**: Number of delayed trains needed to trigger disruption (2-10 trains, default: 2)
+- **Disruption Single Delay**: Minutes of delay for one train to trigger "Severe Disruption" status (5-60 minutes, default: 15)
+- **Disruption Multiple Delay**: Minutes of delay per train for multiple trains to trigger "Severe Disruption" status (5-60 minutes, default: 10)
+- **Disruption Multiple Count**: Number of delayed trains needed to trigger "Severe Disruption" status (2-10 trains, default: 2)
+
+**Note on Disruption Detection**: The Status sensor uses a 5-level hierarchy:
+- **"Normal"**: All trains on time
+- **"Minor Delays"**: One or more trains delayed 1-9 minutes
+- **"Major Delays"**: One or more trains delayed 10+ minutes
+- **"Severe Disruption"**: Triggered when either:
+  - One train delayed ≥ "Disruption Single Delay" minutes, OR
+  - "Disruption Multiple Count" trains each delayed ≥ "Disruption Multiple Delay" minutes
+- **"Critical"**: Any train cancelled (highest priority, always overrides other statuses)
 
 ### Modifying Settings
 
@@ -226,7 +244,8 @@ automation:
         to:
           - "Minor Delays"
           - "Major Delays"
-          - "Cancellations"
+          - "Severe Disruption"
+          - "Critical"
     action:
       - service: notify.mobile_app
         data:
