@@ -12,6 +12,9 @@ CONF_COMMUTE_NAME: Final = "commute_name"
 CONF_TIME_WINDOW: Final = "time_window"
 CONF_NUM_SERVICES: Final = "num_services"
 CONF_NIGHT_UPDATES: Final = "night_updates"
+CONF_DISRUPTION_SINGLE_DELAY: Final = "disruption_single_delay"
+CONF_DISRUPTION_MULTIPLE_DELAY: Final = "disruption_multiple_delay"
+CONF_DISRUPTION_MULTIPLE_COUNT: Final = "disruption_multiple_count"
 
 # API Configuration
 API_BASE_URL: Final = "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
@@ -43,10 +46,16 @@ STATUS_ON_TIME: Final = "on_time"
 STATUS_DELAYED: Final = "delayed"
 STATUS_CANCELLED: Final = "cancelled"
 
-# Disruption thresholds
+# Disruption thresholds (default values)
 DISRUPTION_DELAY_THRESHOLD_SINGLE: Final = 15  # minutes
 DISRUPTION_DELAY_THRESHOLD_MULTIPLE: Final = 10  # minutes
 DISRUPTION_MULTIPLE_SERVICES: Final = 2
+
+# Disruption threshold limits
+MIN_DISRUPTION_DELAY: Final = 5  # minutes
+MAX_DISRUPTION_DELAY: Final = 60  # minutes
+MIN_DISRUPTION_COUNT: Final = 2
+MAX_DISRUPTION_COUNT: Final = 10
 
 # Sensor types
 SENSOR_SUMMARY: Final = "summary"
