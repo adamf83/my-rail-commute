@@ -23,6 +23,9 @@
           "commute_name": "Commute Name",
           "time_window": "Time Window (minutes)",
           "num_services": "Number of Services to Track",
+          "disruption_single_delay": "Single Train Delay Threshold (minutes)",
+          "disruption_multiple_delay": "Multiple Trains Delay Threshold (minutes)",
+          "disruption_multiple_count": "Number of Trains for Alert",
           "night_updates": "Enable Night-Time Updates"
         }
       }
@@ -46,6 +49,9 @@
         "data": {
           "time_window": "Time Window (minutes)",
           "num_services": "Number of Services to Track",
+          "disruption_single_delay": "Single Train Delay Threshold (minutes)",
+          "disruption_multiple_delay": "Multiple Trains Delay Threshold (minutes)",
+          "disruption_multiple_count": "Number of Trains for Alert",
           "night_updates": "Enable Night-Time Updates"
         }
       }
