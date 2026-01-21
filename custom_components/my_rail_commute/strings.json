@@ -35,6 +35,7 @@
       "cannot_connect": "Unable to connect to Rail API. Please try again later.",
       "invalid_station": "Invalid station code. Please use a valid 3-letter CRS code.",
       "same_station": "Origin and destination stations must be different.",
+      "invalid_thresholds": "Single train delay threshold must be greater than or equal to multiple trains threshold.",
       "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {
@@ -55,6 +56,9 @@
           "night_updates": "Enable Night-Time Updates"
         }
       }
+    },
+    "error": {
+      "invalid_thresholds": "Single train delay threshold must be greater than or equal to multiple trains threshold."
     }
   },
   "entity": {

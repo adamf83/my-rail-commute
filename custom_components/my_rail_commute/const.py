@@ -52,7 +52,9 @@ DISRUPTION_DELAY_THRESHOLD_MULTIPLE: Final = 10  # minutes
 DISRUPTION_MULTIPLE_SERVICES: Final = 2
 
 # Disruption threshold limits
-MIN_DISRUPTION_DELAY: Final = 5  # minutes
+# NOTE: Minimum must be >= STATUS_MAJOR_DELAY_THRESHOLD to maintain status hierarchy
+# Otherwise Severe Disruption would trigger before Major Delays, making it unreachable
+MIN_DISRUPTION_DELAY: Final = 10  # minutes (matches STATUS_MAJOR_DELAY_THRESHOLD)
 MAX_DISRUPTION_DELAY: Final = 60  # minutes
 MIN_DISRUPTION_COUNT: Final = 2
 MAX_DISRUPTION_COUNT: Final = 10
@@ -64,16 +66,24 @@ SENSOR_NEXT_TRAIN: Final = "next_train"
 SENSOR_DISRUPTION: Final = "disruption"
 
 # Commute status levels (unified hierarchy for all sensors)
+# These are checked in priority order from highest to lowest:
+# 1. CRITICAL: Any cancellations (highest priority)
+# 2. SEVERE_DISRUPTION: User-configurable thresholds met
+# 3. MAJOR_DELAYS: Delays ≥10 minutes (hardcoded)
+# 4. MINOR_DELAYS: Delays ≥1 minute (hardcoded)
+# 5. NORMAL: All trains on time
 STATUS_NORMAL: Final = "Normal"
 STATUS_MINOR_DELAYS: Final = "Minor Delays"
 STATUS_MAJOR_DELAYS: Final = "Major Delays"
 STATUS_SEVERE_DISRUPTION: Final = "Severe Disruption"
 STATUS_CRITICAL: Final = "Critical"
 
-# Delay thresholds for status classification
+# Delay thresholds for status classification (hardcoded)
+# These define the baseline delay levels before user thresholds are considered
 STATUS_MINOR_DELAY_THRESHOLD: Final = 1  # minutes
 STATUS_MAJOR_DELAY_THRESHOLD: Final = 10  # minutes
-# Severe and Critical levels use user-configurable disruption thresholds
+# Note: User-configurable disruption thresholds (for SEVERE_DISRUPTION) must be
+# >= STATUS_MAJOR_DELAY_THRESHOLD to maintain logical status hierarchy
 
 # Attributes
 ATTR_ORIGIN: Final = "origin"

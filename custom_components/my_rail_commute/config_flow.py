@@ -118,6 +118,27 @@ async def validate_stations(
     }
 
 
+def validate_disruption_thresholds(
+    single_delay: int,
+    multiple_delay: int,
+) -> None:
+    """Validate disruption threshold values are logical.
+
+    Args:
+        single_delay: Single train delay threshold (minutes)
+        multiple_delay: Multiple trains delay threshold (minutes)
+
+    Raises:
+        ValueError: If thresholds are illogical
+    """
+    if single_delay < multiple_delay:
+        raise ValueError(
+            "Single train delay threshold must be greater than or equal to "
+            "multiple trains threshold. A single train should require a longer "
+            "delay to trigger severe disruption than multiple trains."
+        )
+
+
 class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for My Rail Commute."""
 
@@ -245,20 +266,33 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Returns:
             FlowResult for creating entry
         """
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            # Create the config entry
-            commute_name = user_input.get(
-                CONF_COMMUTE_NAME,
-                f"{self._origin_name} to {self._destination_name}",
-            )
+            # Validate disruption thresholds
+            try:
+                validate_disruption_thresholds(
+                    user_input[CONF_DISRUPTION_SINGLE_DELAY],
+                    user_input[CONF_DISRUPTION_MULTIPLE_DELAY],
+                )
+            except ValueError as err:
+                errors["base"] = "invalid_thresholds"
+                _LOGGER.error("Invalid disruption thresholds: %s", err)
 
-            # Set unique ID based on route
-            await self.async_set_unique_id(
-                f"{self._origin}_{self._destination}"
-            )
-            self._abort_if_unique_id_configured()
+            if not errors:
+                # Create the config entry
+                commute_name = user_input.get(
+                    CONF_COMMUTE_NAME,
+                    f"{self._origin_name} to {self._destination_name}",
+                )
 
-            return self.async_create_entry(
+                # Set unique ID based on route
+                await self.async_set_unique_id(
+                    f"{self._origin}_{self._destination}"
+                )
+                self._abort_if_unique_id_configured()
+
+                return self.async_create_entry(
                 title=commute_name,
                 data={
                     CONF_API_KEY: self._api_key,
@@ -351,6 +385,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="settings",
             data_schema=data_schema,
+            errors=errors,
             description_placeholders={
                 "origin": self._origin_name,
                 "destination": self._destination_name,
@@ -387,9 +422,22 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
         Returns:
             FlowResult for options
         """
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            # Update the config entry
-            return self.async_create_entry(title="", data=user_input)
+            # Validate disruption thresholds
+            try:
+                validate_disruption_thresholds(
+                    user_input[CONF_DISRUPTION_SINGLE_DELAY],
+                    user_input[CONF_DISRUPTION_MULTIPLE_DELAY],
+                )
+            except ValueError as err:
+                errors["base"] = "invalid_thresholds"
+                _LOGGER.error("Invalid disruption thresholds: %s", err)
+
+            if not errors:
+                # Update the config entry
+                return self.async_create_entry(title="", data=user_input)
 
         # Get current values
         current_data = self.config_entry.data
@@ -483,4 +531,5 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=data_schema,
+            errors=errors,
         )
