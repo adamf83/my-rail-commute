@@ -41,9 +41,7 @@ from .const import (
     DOMAIN,
     STATUS_CRITICAL,
     STATUS_MAJOR_DELAYS,
-    STATUS_MAJOR_DELAY_THRESHOLD,
     STATUS_MINOR_DELAYS,
-    STATUS_MINOR_DELAY_THRESHOLD,
     STATUS_NORMAL,
     STATUS_SEVERE_DISRUPTION,
 )
@@ -297,13 +295,13 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
         major_delays = sum(
             1 for s in services
             if not s.get("is_cancelled", False)
-            and s.get("delay_minutes", 0) >= STATUS_MAJOR_DELAY_THRESHOLD
+            and s.get("delay_minutes", 0) >= self.coordinator.major_delay_threshold
         )
         minor_delays = sum(
             1 for s in services
             if not s.get("is_cancelled", False)
-            and s.get("delay_minutes", 0) >= STATUS_MINOR_DELAY_THRESHOLD
-            and s.get("delay_minutes", 0) < STATUS_MAJOR_DELAY_THRESHOLD
+            and s.get("delay_minutes", 0) >= self.coordinator.minor_delay_threshold
+            and s.get("delay_minutes", 0) < self.coordinator.major_delay_threshold
         )
         on_time = total_trains - cancelled_count - major_delays - minor_delays
 
