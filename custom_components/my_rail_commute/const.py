@@ -63,15 +63,17 @@ SENSOR_STATUS: Final = "status"
 SENSOR_NEXT_TRAIN: Final = "next_train"
 SENSOR_DISRUPTION: Final = "disruption"
 
-# Commute status levels (for overall commute status sensor)
+# Commute status levels (unified hierarchy for all sensors)
 STATUS_NORMAL: Final = "Normal"
 STATUS_MINOR_DELAYS: Final = "Minor Delays"
 STATUS_MAJOR_DELAYS: Final = "Major Delays"
-STATUS_CANCELLATIONS: Final = "Cancellations"
+STATUS_SEVERE_DISRUPTION: Final = "Severe Disruption"
+STATUS_CRITICAL: Final = "Critical"
 
-# Delay thresholds for commute status classification
+# Delay thresholds for status classification
 STATUS_MINOR_DELAY_THRESHOLD: Final = 1  # minutes
 STATUS_MAJOR_DELAY_THRESHOLD: Final = 10  # minutes
+# Severe and Critical levels use user-configurable disruption thresholds
 
 # Attributes
 ATTR_ORIGIN: Final = "origin"

@@ -26,8 +26,15 @@ from .const import (
     NIGHT_HOURS,
     PEAK_HOURS,
     STATUS_CANCELLED,
+    STATUS_CRITICAL,
     STATUS_DELAYED,
+    STATUS_MAJOR_DELAYS,
+    STATUS_MAJOR_DELAY_THRESHOLD,
+    STATUS_MINOR_DELAYS,
+    STATUS_MINOR_DELAY_THRESHOLD,
+    STATUS_NORMAL,
     STATUS_ON_TIME,
+    STATUS_SEVERE_DISRUPTION,
     UPDATE_INTERVAL_NIGHT,
     UPDATE_INTERVAL_OFF_PEAK,
     UPDATE_INTERVAL_PEAK,
@@ -288,6 +295,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         # Determine disruption status
         disruption_data = self._calculate_disruption(services)
 
+        # Calculate overall status (single source of truth)
+        overall_status = self._calculate_overall_status(services, disruption_data)
+
         # Build summary
         summary = self._build_summary(on_time_count, delayed_count, cancelled_count)
 
@@ -312,6 +322,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "cancelled_count": cancelled_count,
             "next_train": next_train,
             "disruption": disruption_data,
+            "overall_status": overall_status,  # Unified status for all sensors
             "summary": summary,
             "last_updated": dt_util.now().isoformat(),
             "next_update": (dt_util.now() + self.update_interval).isoformat(),
@@ -397,10 +408,65 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "disruption_reasons": disruption_reasons,
         }
 
+    def _calculate_overall_status(
+        self, services: list[dict[str, Any]], disruption_data: dict[str, Any]
+    ) -> str:
+        """Calculate overall commute status (single source of truth).
+
+        This method provides a unified status hierarchy that all sensors can reference:
+        - Critical: Any cancellations (highest priority)
+        - Severe Disruption: Meets user-configurable disruption thresholds
+        - Major Delays: Delays ≥10 minutes (but below disruption threshold)
+        - Minor Delays: Delays ≥1 minute (but below major threshold)
+        - Normal: All trains on time
+
+        Args:
+            services: List of service data
+            disruption_data: Disruption analysis from _calculate_disruption()
+
+        Returns:
+            Status string: Normal, Minor Delays, Major Delays, Severe Disruption, or Critical
+        """
+        if not services:
+            return STATUS_NORMAL
+
+        # Check for cancellations first (CRITICAL - highest priority)
+        cancelled_count = sum(1 for s in services if s.get("is_cancelled", False))
+        if cancelled_count > 0:
+            return STATUS_CRITICAL
+
+        # Check if disruption thresholds are met (SEVERE DISRUPTION)
+        # This uses the user's configurable thresholds
+        if disruption_data.get("has_disruption", False):
+            return STATUS_SEVERE_DISRUPTION
+
+        # Check for major delays (≥10 minutes)
+        major_delays = sum(
+            1 for s in services
+            if not s.get("is_cancelled", False)
+            and s.get("delay_minutes", 0) >= STATUS_MAJOR_DELAY_THRESHOLD
+        )
+        if major_delays > 0:
+            return STATUS_MAJOR_DELAYS
+
+        # Check for minor delays (≥1 minute)
+        minor_delays = sum(
+            1 for s in services
+            if not s.get("is_cancelled", False)
+            and s.get("delay_minutes", 0) >= STATUS_MINOR_DELAY_THRESHOLD
+        )
+        if minor_delays > 0:
+            return STATUS_MINOR_DELAYS
+
+        # Everything is on time
+        return STATUS_NORMAL
+
     def _build_summary(
         self, on_time_count: int, delayed_count: int, cancelled_count: int
     ) -> str:
         """Build a summary string for the commute status.
+
+        Focuses on counts rather than severity (severity is handled by overall_status).
 
         Args:
             on_time_count: Number of on-time services
@@ -408,27 +474,33 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             cancelled_count: Number of cancelled services
 
         Returns:
-            Summary string
+            Summary string with counts
         """
         total = on_time_count + delayed_count + cancelled_count
 
         if total == 0:
             return "No trains found"
 
-        # Check for severe disruption
-        if cancelled_count > 0 and delayed_count > 0:
-            return "Severe disruptions"
-
+        # Build narrative summary based on counts
         if cancelled_count > 0:
             if cancelled_count == total:
                 return "All trains cancelled"
+            if delayed_count > 0:
+                # Both cancellations and delays
+                running = on_time_count + delayed_count
+                return f"{running} train{'s' if running != 1 else ''} running, {cancelled_count} cancelled"
+            # Cancellations only
             return f"{cancelled_count} train{'s' if cancelled_count != 1 else ''} cancelled"
 
         if delayed_count > 0:
             if delayed_count == total:
                 return "All trains delayed"
-            running = on_time_count + delayed_count
-            return f"{running} train{'s' if running != 1 else ''} running, {delayed_count} delayed"
+            if on_time_count > 0:
+                # Mix of on-time and delayed
+                running = on_time_count + delayed_count
+                return f"{running} train{'s' if running != 1 else ''} running, {delayed_count} delayed"
+            # Delayed only
+            return f"{delayed_count} train{'s' if delayed_count != 1 else ''} delayed"
 
         # All on time
         return f"{on_time_count} train{'s' if on_time_count != 1 else ''} on time"

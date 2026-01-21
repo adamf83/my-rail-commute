@@ -39,12 +39,13 @@ from .const import (
     CONF_COMMUTE_NAME,
     CONF_NUM_SERVICES,
     DOMAIN,
-    STATUS_CANCELLATIONS,
+    STATUS_CRITICAL,
     STATUS_MAJOR_DELAYS,
     STATUS_MAJOR_DELAY_THRESHOLD,
     STATUS_MINOR_DELAYS,
     STATUS_MINOR_DELAY_THRESHOLD,
     STATUS_NORMAL,
+    STATUS_SEVERE_DISRUPTION,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
 
@@ -206,7 +207,15 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
 
 
 class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
-    """Sensor for overall commute status (Normal/Minor Delays/Major Delays/Cancellations)."""
+    """Sensor for overall commute status.
+
+    Shows unified status with 5 levels:
+    - Normal: All trains on time
+    - Minor Delays: Delays 1-9 minutes
+    - Major Delays: Delays ≥10 minutes
+    - Severe Disruption: Meets user's configurable disruption thresholds
+    - Critical: Any cancellations
+    """
 
     def __init__(
         self,
@@ -229,50 +238,36 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the state of the sensor.
 
+        Uses the unified status calculation from the coordinator.
+
         Returns:
-            Status: Normal, Minor Delays, Major Delays, or Cancellations
+            Status: Normal, Minor Delays, Major Delays, Severe Disruption, or Critical
         """
         if not self.coordinator.data:
             return None
 
-        services = self.coordinator.data.get("services", [])
-
-        if not services:
-            return STATUS_NORMAL
-
-        # Check for cancellations first (highest priority)
-        cancelled_count = sum(1 for s in services if s.get("is_cancelled", False))
-        if cancelled_count > 0:
-            return STATUS_CANCELLATIONS
-
-        # Check for major delays
-        major_delays = sum(
-            1 for s in services
-            if s.get("delay_minutes", 0) >= STATUS_MAJOR_DELAY_THRESHOLD
-        )
-        if major_delays > 0:
-            return STATUS_MAJOR_DELAYS
-
-        # Check for minor delays
-        minor_delays = sum(
-            1 for s in services
-            if s.get("delay_minutes", 0) >= STATUS_MINOR_DELAY_THRESHOLD
-        )
-        if minor_delays > 0:
-            return STATUS_MINOR_DELAYS
-
-        return STATUS_NORMAL
+        # Use the unified status from coordinator (single source of truth)
+        return self.coordinator.data.get("overall_status", STATUS_NORMAL)
 
     @property
     def icon(self) -> str:
         """Return icon based on commute status.
+
+        Icon progression from least to most severe:
+        - Normal: train (blue)
+        - Minor Delays: train-variant (yellow)
+        - Major Delays: clock-alert (orange)
+        - Severe Disruption: alert-circle (red)
+        - Critical: alert-octagon (red)
 
         Returns:
             Icon string
         """
         status = self.native_value
 
-        if status == STATUS_CANCELLATIONS:
+        if status == STATUS_CRITICAL:
+            return "mdi:alert-octagon"
+        elif status == STATUS_SEVERE_DISRUPTION:
             return "mdi:alert-circle"
         elif status == STATUS_MAJOR_DELAYS:
             return "mdi:clock-alert"
@@ -284,6 +279,8 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional state attributes.
+
+        Provides detailed breakdown of service counts and status information.
 
         Returns:
             Dictionary of attributes
@@ -318,6 +315,9 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
                 default=0
             )
 
+        # Include disruption information for context
+        disruption = data.get("disruption", {})
+
         return {
             "total_trains": total_trains,
             "on_time_count": on_time,
@@ -325,6 +325,7 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
             "major_delays_count": major_delays,
             "cancelled_count": cancelled_count,
             "max_delay_minutes": max_delay,
+            "disruption_threshold_met": disruption.get("has_disruption", False),
             ATTR_ORIGIN: data.get("origin"),
             ATTR_ORIGIN_NAME: data.get("origin_name"),
             ATTR_DESTINATION: data.get("destination"),
