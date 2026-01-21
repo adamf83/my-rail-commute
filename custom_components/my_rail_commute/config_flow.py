@@ -22,6 +22,9 @@ from .api import (
 from .const import (
     CONF_COMMUTE_NAME,
     CONF_DESTINATION,
+    CONF_DISRUPTION_MULTIPLE_COUNT,
+    CONF_DISRUPTION_MULTIPLE_DELAY,
+    CONF_DISRUPTION_SINGLE_DELAY,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
@@ -30,9 +33,16 @@ from .const import (
     DEFAULT_NIGHT_UPDATES,
     DEFAULT_NUM_SERVICES,
     DEFAULT_TIME_WINDOW,
+    DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
+    DISRUPTION_DELAY_THRESHOLD_SINGLE,
+    DISRUPTION_MULTIPLE_SERVICES,
     DOMAIN,
+    MAX_DISRUPTION_COUNT,
+    MAX_DISRUPTION_DELAY,
     MAX_NUM_SERVICES,
     MAX_TIME_WINDOW,
+    MIN_DISRUPTION_COUNT,
+    MIN_DISRUPTION_DELAY,
     MIN_NUM_SERVICES,
     MIN_TIME_WINDOW,
 )
@@ -258,6 +268,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_TIME_WINDOW: user_input[CONF_TIME_WINDOW],
                     CONF_NUM_SERVICES: user_input[CONF_NUM_SERVICES],
                     CONF_NIGHT_UPDATES: user_input[CONF_NIGHT_UPDATES],
+                    CONF_DISRUPTION_SINGLE_DELAY: user_input[CONF_DISRUPTION_SINGLE_DELAY],
+                    CONF_DISRUPTION_MULTIPLE_DELAY: user_input[CONF_DISRUPTION_MULTIPLE_DELAY],
+                    CONF_DISRUPTION_MULTIPLE_COUNT: user_input[CONF_DISRUPTION_MULTIPLE_COUNT],
                 },
             )
 
@@ -297,6 +310,41 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_NIGHT_UPDATES,
                     default=DEFAULT_NIGHT_UPDATES,
                 ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_DISRUPTION_SINGLE_DELAY,
+                    default=DISRUPTION_DELAY_THRESHOLD_SINGLE,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_DISRUPTION_DELAY,
+                        max=MAX_DISRUPTION_DELAY,
+                        step=1,
+                        unit_of_measurement="minutes",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    ),
+                ),
+                vol.Required(
+                    CONF_DISRUPTION_MULTIPLE_DELAY,
+                    default=DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_DISRUPTION_DELAY,
+                        max=MAX_DISRUPTION_DELAY,
+                        step=1,
+                        unit_of_measurement="minutes",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    ),
+                ),
+                vol.Required(
+                    CONF_DISRUPTION_MULTIPLE_COUNT,
+                    default=DISRUPTION_MULTIPLE_SERVICES,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_DISRUPTION_COUNT,
+                        max=MAX_DISRUPTION_COUNT,
+                        step=1,
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    ),
+                ),
             }
         )
 
@@ -385,6 +433,50 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                         current_data.get(CONF_NIGHT_UPDATES, DEFAULT_NIGHT_UPDATES),
                     ),
                 ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_DISRUPTION_SINGLE_DELAY,
+                    default=options.get(
+                        CONF_DISRUPTION_SINGLE_DELAY,
+                        current_data.get(CONF_DISRUPTION_SINGLE_DELAY, DISRUPTION_DELAY_THRESHOLD_SINGLE),
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_DISRUPTION_DELAY,
+                        max=MAX_DISRUPTION_DELAY,
+                        step=1,
+                        unit_of_measurement="minutes",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    ),
+                ),
+                vol.Required(
+                    CONF_DISRUPTION_MULTIPLE_DELAY,
+                    default=options.get(
+                        CONF_DISRUPTION_MULTIPLE_DELAY,
+                        current_data.get(CONF_DISRUPTION_MULTIPLE_DELAY, DISRUPTION_DELAY_THRESHOLD_MULTIPLE),
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_DISRUPTION_DELAY,
+                        max=MAX_DISRUPTION_DELAY,
+                        step=1,
+                        unit_of_measurement="minutes",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    ),
+                ),
+                vol.Required(
+                    CONF_DISRUPTION_MULTIPLE_COUNT,
+                    default=options.get(
+                        CONF_DISRUPTION_MULTIPLE_COUNT,
+                        current_data.get(CONF_DISRUPTION_MULTIPLE_COUNT, DISRUPTION_MULTIPLE_SERVICES),
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=MIN_DISRUPTION_COUNT,
+                        max=MAX_DISRUPTION_COUNT,
+                        step=1,
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    ),
+                ),
             }
         )
 

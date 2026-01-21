@@ -12,6 +12,9 @@ from homeassistant.util import dt as dt_util
 from .api import NationalRailAPI, NationalRailAPIError
 from .const import (
     CONF_DESTINATION,
+    CONF_DISRUPTION_MULTIPLE_COUNT,
+    CONF_DISRUPTION_MULTIPLE_DELAY,
+    CONF_DISRUPTION_SINGLE_DELAY,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
     CONF_TIME_WINDOW,
@@ -60,6 +63,17 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         self.time_window = int(config[CONF_TIME_WINDOW])
         self.num_services = int(config[CONF_NUM_SERVICES])
         self.night_updates_enabled = config.get(CONF_NIGHT_UPDATES, False)
+
+        # Disruption thresholds (per-service configuration)
+        self.disruption_single_delay = int(
+            config.get(CONF_DISRUPTION_SINGLE_DELAY, DISRUPTION_DELAY_THRESHOLD_SINGLE)
+        )
+        self.disruption_multiple_delay = int(
+            config.get(CONF_DISRUPTION_MULTIPLE_DELAY, DISRUPTION_DELAY_THRESHOLD_MULTIPLE)
+        )
+        self.disruption_multiple_count = int(
+            config.get(CONF_DISRUPTION_MULTIPLE_COUNT, DISRUPTION_MULTIPLE_SERVICES)
+        )
 
         # Station names (will be populated on first update)
         self.origin_name: str | None = None
@@ -338,7 +352,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                     disruption_reasons.append(reason)
 
             # Check for significant delays
-            elif delay_minutes >= DISRUPTION_DELAY_THRESHOLD_SINGLE:
+            elif delay_minutes >= self.disruption_single_delay:
                 has_disruption = True
                 if disruption_type != "cancellation":
                     disruption_type = "delay"
@@ -351,7 +365,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 if reason and reason not in disruption_reasons:
                     disruption_reasons.append(reason)
 
-            elif delay_minutes >= DISRUPTION_DELAY_THRESHOLD_MULTIPLE:
+            elif delay_minutes >= self.disruption_multiple_delay:
                 delayed_services += 1
                 max_delay = max(max_delay, delay_minutes)
 
@@ -363,7 +377,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         # Check for multiple moderate delays
         if (
             not has_disruption
-            and delayed_services >= DISRUPTION_MULTIPLE_SERVICES
+            and delayed_services >= self.disruption_multiple_count
         ):
             has_disruption = True
             disruption_type = "delay"

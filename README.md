@@ -109,10 +109,10 @@ The integration creates multiple sensors for each configured commute:
   - `delayed_services`: Count of delayed trains
   - `max_delay_minutes`: Maximum delay in minutes
   - `disruption_reasons`: List of reasons for disruptions
-- **Trigger Conditions**:
+- **Trigger Conditions** (configurable per commute):
   - Any train cancelled
-  - Single train delayed ≥15 minutes
-  - Multiple trains (≥2) delayed ≥10 minutes
+  - Single train delayed ≥ threshold (default: 15 minutes)
+  - Multiple trains (≥ count threshold, default: 2) delayed ≥ threshold (default: 10 minutes)
 
 ## Prerequisites
 
@@ -181,13 +181,20 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 - **Time Window**: How many minutes ahead to look (15-120 minutes, default: 60)
 - **Number of Services**: How many trains to track (1-10, default: 3)
 - **Enable Night-Time Updates**: Keep polling during night hours (23:00-05:00)
+- **Disruption Single Delay**: Minutes of delay for one train to trigger disruption (5-60 minutes, default: 15)
+- **Disruption Multiple Delay**: Minutes of delay for multiple trains to trigger disruption (5-60 minutes, default: 10)
+- **Disruption Multiple Count**: Number of delayed trains needed to trigger disruption (2-10 trains, default: 2)
 
 ### Modifying Settings
 
 1. Go to **Settings** → **Devices & Services**
 2. Find your My Rail Commute integration
 3. Click **Configure**
-4. Adjust your settings (time window, number of services, night updates)
+4. Adjust your settings:
+   - Time window
+   - Number of services to track
+   - Night-time updates
+   - Disruption detection thresholds
 
 ### Multiple Commutes
 
