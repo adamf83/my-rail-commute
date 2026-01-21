@@ -307,10 +307,6 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                 ),
                 vol.Required(
-                    CONF_NIGHT_UPDATES,
-                    default=DEFAULT_NIGHT_UPDATES,
-                ): selector.BooleanSelector(),
-                vol.Required(
                     CONF_DISRUPTION_SINGLE_DELAY,
                     default=DISRUPTION_DELAY_THRESHOLD_SINGLE,
                 ): selector.NumberSelector(
@@ -345,6 +341,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
+                vol.Required(
+                    CONF_NIGHT_UPDATES,
+                    default=DEFAULT_NIGHT_UPDATES,
+                ): selector.BooleanSelector(),
             }
         )
 
@@ -427,13 +427,6 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                     ),
                 ),
                 vol.Required(
-                    CONF_NIGHT_UPDATES,
-                    default=options.get(
-                        CONF_NIGHT_UPDATES,
-                        current_data.get(CONF_NIGHT_UPDATES, DEFAULT_NIGHT_UPDATES),
-                    ),
-                ): selector.BooleanSelector(),
-                vol.Required(
                     CONF_DISRUPTION_SINGLE_DELAY,
                     default=options.get(
                         CONF_DISRUPTION_SINGLE_DELAY,
@@ -477,6 +470,13 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
+                vol.Required(
+                    CONF_NIGHT_UPDATES,
+                    default=options.get(
+                        CONF_NIGHT_UPDATES,
+                        current_data.get(CONF_NIGHT_UPDATES, DEFAULT_NIGHT_UPDATES),
+                    ),
+                ): selector.BooleanSelector(),
             }
         )
 
