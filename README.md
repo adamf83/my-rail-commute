@@ -6,6 +6,31 @@
 
 A custom Home Assistant integration that tracks regular commutes using National Rail real-time data from the Darwin API. Monitor train services, get disruption alerts, and automate your commuting routine.
 
+## Recent Changes (v1.1.0)
+
+### Simplified Threshold Configuration
+The threshold system has been completely redesigned to be more intuitive:
+
+**Old System (Complex):**
+- Disruption Single Delay: 15 min
+- Disruption Multiple Delay: 10 min
+- Number of Trains for Alert: 2
+
+**New System (Simple):**
+- Severe Disruption Threshold: 15 min (any train)
+- Major Delays Threshold: 10 min (any train)
+- Minor Delays Threshold: 3 min (any train)
+
+All three thresholds are now fully customizable, and the status hierarchy is based simply on the maximum delay across all trains. Validation ensures thresholds maintain logical order: Severe ≥ Major ≥ Minor ≥ 1 minute.
+
+### Bug Fixes
+- **Fixed delayed_count attribute**: Now correctly shows ALL delayed trains, not just those meeting severe disruption thresholds
+- **Fixed cancelled_count attribute**: Now shows actual cancelled train count consistently across all sensors
+- **Removed confusing attributes**: Removed `disruption_type` and `affected_services` which were causing confusion
+
+### Automatic Migration
+Existing configurations automatically migrate to the new format when you access the integration settings. No manual changes required!
+
 ## Features
 
 - **Real-time Train Tracking**: Monitor upcoming train services between any two UK rail stations
@@ -35,10 +60,10 @@ The integration creates multiple sensors for each configured commute:
 ### 2. Commute Status Sensor
 - **Entity ID**: `sensor.{commute_name}_status`
 - **State**: Overall commute status for easy automation triggers (hierarchical - highest severity wins)
-  - `Normal` - All trains running on time
-  - `Minor Delays` - One or more trains delayed 1-9 minutes
-  - `Major Delays` - One or more trains delayed 10+ minutes
-  - `Severe Disruption` - Disruption thresholds met (configurable)
+  - `Normal` - All trains running on time (or below minor threshold)
+  - `Minor Delays` - One or more trains delayed ≥ minor threshold (default 3 min, user-configurable)
+  - `Major Delays` - One or more trains delayed ≥ major threshold (default 10 min, user-configurable)
+  - `Severe Disruption` - One or more trains delayed ≥ severe threshold (default 15 min, user-configurable)
   - `Critical` - One or more trains cancelled (highest priority)
 - **Icon**: Dynamic based on status
   - `mdi:train` - Normal
@@ -49,11 +74,10 @@ The integration creates multiple sensors for each configured commute:
 - **Attributes**:
   - `total_trains`: Total tracked trains
   - `on_time_count`: Number of on-time trains
-  - `minor_delays_count`: Number of trains with 1-9 minute delays
-  - `major_delays_count`: Number of trains with 10+ minute delays
+  - `minor_delays_count`: Number of trains above minor threshold
+  - `major_delays_count`: Number of trains above major threshold
   - `cancelled_count`: Number of cancelled trains
   - `max_delay_minutes`: Maximum delay across all trains
-  - `disruption_threshold_met`: Boolean indicating if user-configured disruption thresholds are met
   - Origin/destination information
   - Last updated timestamp
 - **Use Case**: Simple state-based automation triggers without template conditions
@@ -112,12 +136,10 @@ The integration creates multiple sensors for each configured commute:
   - `mdi:check-circle` - When off (normal service)
 - **Attributes**:
   - `current_status`: Current overall status (Normal, Minor Delays, Major Delays, Severe Disruption, or Critical)
-  - `disruption_type`: Type of disruption ("cancellation", "delay", "multiple", or null)
-  - `affected_services`: Number of services affected
-  - `cancelled_services`: Count of cancelled trains
-  - `delayed_services`: Count of delayed trains
-  - `max_delay_minutes`: Maximum delay in minutes
-  - `disruption_reasons`: List of reasons for disruptions
+  - `cancelled_count`: Total count of cancelled trains
+  - `delayed_count`: Total count of delayed trains (all delays, not just severe)
+  - `max_delay_minutes`: Maximum delay in minutes across all trains
+  - `disruption_reasons`: List of reasons for disruptions (cancellations and delays)
   - `last_checked`: Timestamp of last update
 - **Trigger Logic**: Binary sensor is "on" when status is anything other than Normal
 
@@ -187,19 +209,19 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 - **Commute Name**: Friendly name (default: "Origin to Destination")
 - **Time Window**: How many minutes ahead to look (15-120 minutes, default: 60)
 - **Number of Services**: How many trains to track (1-10, default: 3)
+- **Severe Disruption Threshold**: Minutes of delay to trigger "Severe Disruption" status for any train (1-60 minutes, default: 15)
+- **Major Delays Threshold**: Minutes of delay to trigger "Major Delays" status for any train (1-60 minutes, default: 10)
+- **Minor Delays Threshold**: Minutes of delay to trigger "Minor Delays" status for any train (1-60 minutes, default: 3)
 - **Enable Night-Time Updates**: Keep polling during night hours (23:00-05:00)
-- **Disruption Single Delay**: Minutes of delay for one train to trigger "Severe Disruption" status (5-60 minutes, default: 15)
-- **Disruption Multiple Delay**: Minutes of delay per train for multiple trains to trigger "Severe Disruption" status (5-60 minutes, default: 10)
-- **Disruption Multiple Count**: Number of delayed trains needed to trigger "Severe Disruption" status (2-10 trains, default: 2)
 
-**Note on Disruption Detection**: The Status sensor uses a 5-level hierarchy:
-- **"Normal"**: All trains on time
-- **"Minor Delays"**: One or more trains delayed 1-9 minutes
-- **"Major Delays"**: One or more trains delayed 10+ minutes
-- **"Severe Disruption"**: Triggered when either:
-  - One train delayed ≥ "Disruption Single Delay" minutes, OR
-  - "Disruption Multiple Count" trains each delayed ≥ "Disruption Multiple Delay" minutes
+**Note on Status Hierarchy**: The Status sensor uses a 5-level hierarchy based on the maximum delay across all trains:
+- **"Normal"**: All trains on time (or below minor threshold)
+- **"Minor Delays"**: Any train delayed ≥ Minor Delays Threshold (default 3 minutes)
+- **"Major Delays"**: Any train delayed ≥ Major Delays Threshold (default 10 minutes)
+- **"Severe Disruption"**: Any train delayed ≥ Severe Disruption Threshold (default 15 minutes)
 - **"Critical"**: Any train cancelled (highest priority, always overrides other statuses)
+
+All three delay thresholds are fully customizable. Validation ensures the hierarchy is maintained: Severe ≥ Major ≥ Minor ≥ 1 minute.
 
 ### Modifying Settings
 
@@ -209,8 +231,12 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 4. Adjust your settings:
    - Time window
    - Number of services to track
+   - Severe Disruption Threshold
+   - Major Delays Threshold
+   - Minor Delays Threshold
    - Night-time updates
-   - Disruption detection thresholds
+
+**Note**: When you update your configuration, any old threshold settings will automatically migrate to the new format.
 
 ### Multiple Commutes
 
@@ -535,5 +561,5 @@ Train times and information are provided by National Rail's systems. While we st
 
 ---
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Minimum Home Assistant Version**: 2024.1.0
