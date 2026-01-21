@@ -98,21 +98,19 @@ The integration creates multiple sensors for each configured commute:
 
 **Note**: The Next Train Sensor mirrors Train 1 for convenience. Train sensors automatically filter out departed trains.
 
-### 5. Severe Disruption Binary Sensor
-- **Entity ID**: `binary_sensor.{commute_name}_severe_disruption`
-- **State**: ON when disruption detected, OFF when services are normal
-- **Device Class**: `problem`
+### 5. Has Disruption Binary Sensor
+- **Entity ID**: `binary_sensor.{commute_name}_has_disruption`
+- **State**: "Yes" when disruption detected, "No" when services are normal
 - **Attributes**:
+  - `current_status`: Current overall status (Normal, Minor Delays, Major Delays, or Cancellations)
   - `disruption_type`: Type of disruption ("cancellation", "delay", "multiple", or null)
   - `affected_services`: Number of services affected
   - `cancelled_services`: Count of cancelled trains
   - `delayed_services`: Count of delayed trains
   - `max_delay_minutes`: Maximum delay in minutes
   - `disruption_reasons`: List of reasons for disruptions
-- **Trigger Conditions** (configurable per commute):
-  - Any train cancelled
-  - Single train delayed ≥ threshold (default: 15 minutes)
-  - Multiple trains (≥ count threshold, default: 2) delayed ≥ threshold (default: 10 minutes)
+  - `last_checked`: Timestamp of last update
+- **Trigger Logic**: Binary sensor is "Yes" (on) when status is anything other than Normal
 
 ## Prerequisites
 
@@ -260,21 +258,21 @@ automation:
 
 ### Disruption Notification
 
-Get a mobile notification when severe disruption is detected:
+Get a mobile notification when disruption is detected:
 
 ```yaml
 automation:
   - alias: "Alert on Commute Disruption"
     trigger:
       - platform: state
-        entity_id: binary_sensor.morning_commute_severe_disruption
+        entity_id: binary_sensor.morning_commute_has_disruption
         to: "on"
     action:
       - service: notify.mobile_app
         data:
           title: "Commute Disruption!"
           message: >
-            {{ state_attr('binary_sensor.morning_commute_severe_disruption', 'disruption_reasons')[0] }}
+            {{ state_attr('binary_sensor.morning_commute_has_disruption', 'disruption_reasons')[0] }}
           data:
             priority: high
 ```
@@ -406,14 +404,14 @@ cards:
 
   - type: conditional
     conditions:
-      - entity: binary_sensor.morning_commute_severe_disruption
+      - entity: binary_sensor.morning_commute_has_disruption
         state: "on"
     card:
       type: markdown
       content: >
         **⚠️ Disruption Detected**
 
-        {{ state_attr('binary_sensor.morning_commute_severe_disruption', 'disruption_reasons') | join(', ') }}
+        {{ state_attr('binary_sensor.morning_commute_has_disruption', 'disruption_reasons') | join(', ') }}
 
   - type: entities
     title: Next Train

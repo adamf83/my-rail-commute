@@ -56,5 +56,15 @@
         }
       }
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "disruption": {
+        "state": {
+          "on": "Yes",
+          "off": "No"
+        }
+      }
+    }
   }
 }
