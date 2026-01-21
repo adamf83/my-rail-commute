@@ -108,6 +108,9 @@ def test_platform_change_detection_unit():
     # Create the sensor
     sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
 
+    # Mock the hass attribute to prevent "Attribute hass is None" error
+    sensor.hass = MagicMock()
+
     # Test 1: Initial update with platform "3"
     mock_coordinator.data = {
         "services": [
@@ -183,6 +186,9 @@ def test_platform_change_from_tba_unit():
     # Create the sensor
     sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
 
+    # Mock the hass attribute to prevent "Attribute hass is None" error
+    sensor.hass = MagicMock()
+
     # Test 1: Initial update with empty platform (TBA)
     mock_coordinator.data = {
         "services": [
@@ -226,6 +232,9 @@ def test_platform_change_no_service_id():
     # Create the sensor
     sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
 
+    # Mock the hass attribute to prevent "Attribute hass is None" error
+    sensor.hass = MagicMock()
+
     # Test: Update with missing service_id
     mock_coordinator.data = {
         "services": [
@@ -253,6 +262,9 @@ def test_platform_no_change_same_service():
 
     # Create the sensor
     sensor = TrainSensor(mock_coordinator, mock_entry, train_number=1)
+
+    # Mock the hass attribute to prevent "Attribute hass is None" error
+    sensor.hass = MagicMock()
 
     # Test 1: Initial update
     mock_coordinator.data = {
