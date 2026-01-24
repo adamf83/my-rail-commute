@@ -141,6 +141,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         Raises:
             UpdateFailed: If update fails
         """
+        _LOGGER.debug("Starting data update for %s -> %s", self.origin, self.destination)
+
         # Update interval may have changed (e.g., switching between peak/off-peak/night)
         new_interval = self._get_update_interval()
         if new_interval != self.update_interval:
@@ -171,6 +173,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
             # Reset failed update counter on success
             self._failed_updates = 0
+
+            _LOGGER.debug(
+                "Data update complete: %d services found, status=%s",
+                len(parsed_data.get("services", [])),
+                parsed_data.get("overall_status", "Unknown"),
+            )
 
             return parsed_data
 
