@@ -79,6 +79,13 @@ async def async_setup_entry(
     for train_number in range(1, num_trains + 1):
         entities.append(TrainSensor(coordinator, entry, train_number))
 
+    _LOGGER.debug(
+        "Setting up %d sensor entities for %s -> %s",
+        len(entities),
+        coordinator.origin,
+        coordinator.destination,
+    )
+
     async_add_entities(entities)
 
 
@@ -368,10 +375,16 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator and detect platform changes."""
         if not self.coordinator.data:
+            _LOGGER.debug("Train %d: No coordinator data available", self._train_number)
             super()._handle_coordinator_update()
             return
 
         services = self.coordinator.data.get("services", [])
+        _LOGGER.debug(
+            "Train %d: Processing update with %d services available",
+            self._train_number,
+            len(services),
+        )
 
         # Check if this train exists in the service list
         if len(services) >= self._train_number:

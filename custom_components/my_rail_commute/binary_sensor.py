@@ -46,6 +46,12 @@ async def async_setup_entry(
         DisruptionSensor(coordinator, entry),
     ]
 
+    _LOGGER.debug(
+        "Setting up binary sensor entities for %s -> %s",
+        coordinator.origin,
+        coordinator.destination,
+    )
+
     async_add_entities(entities)
 
 
@@ -121,11 +127,18 @@ class DisruptionSensor(NationalRailCommuteBinarySensor):
             True if any disruption (Status != Normal), False otherwise
         """
         if not self.coordinator.data:
+            _LOGGER.debug("Disruption sensor: No coordinator data available")
             return False
 
         # Simple logic: ON if status is anything other than Normal
         overall_status = self.coordinator.data.get("overall_status", "Normal")
-        return overall_status != "Normal"
+        is_disrupted = overall_status != "Normal"
+        _LOGGER.debug(
+            "Disruption sensor: status=%s, is_disrupted=%s",
+            overall_status,
+            is_disrupted,
+        )
+        return is_disrupted
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
