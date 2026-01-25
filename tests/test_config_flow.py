@@ -21,17 +21,17 @@ from custom_components.my_rail_commute.config_flow import (
 from custom_components.my_rail_commute.const import (
     CONF_COMMUTE_NAME,
     CONF_DESTINATION,
-    CONF_DISRUPTION_MULTIPLE_COUNT,
-    CONF_DISRUPTION_MULTIPLE_DELAY,
-    CONF_DISRUPTION_SINGLE_DELAY,
+    CONF_MAJOR_DELAY_THRESHOLD,
+    CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
+    CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
+    DEFAULT_MAJOR_DELAY_THRESHOLD,
+    DEFAULT_MINOR_DELAY_THRESHOLD,
+    DEFAULT_SEVERE_DELAY_THRESHOLD,
     DOMAIN,
-    DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
-    DISRUPTION_DELAY_THRESHOLD_SINGLE,
-    DISRUPTION_MULTIPLE_SERVICES,
 )
 
 
@@ -314,9 +314,9 @@ class TestConfigFlow:
                 CONF_TIME_WINDOW: 60,
                 CONF_NUM_SERVICES: 3,
                 CONF_NIGHT_UPDATES: True,
-                CONF_DISRUPTION_SINGLE_DELAY: DISRUPTION_DELAY_THRESHOLD_SINGLE,
-                CONF_DISRUPTION_MULTIPLE_DELAY: DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
-                CONF_DISRUPTION_MULTIPLE_COUNT: DISRUPTION_MULTIPLE_SERVICES,
+                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
+                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
+                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
             },
         )
 
@@ -328,9 +328,9 @@ class TestConfigFlow:
         assert result["data"][CONF_TIME_WINDOW] == 60
         assert result["data"][CONF_NUM_SERVICES] == 3
         assert result["data"][CONF_NIGHT_UPDATES] is True
-        assert result["data"][CONF_DISRUPTION_SINGLE_DELAY] == DISRUPTION_DELAY_THRESHOLD_SINGLE
-        assert result["data"][CONF_DISRUPTION_MULTIPLE_DELAY] == DISRUPTION_DELAY_THRESHOLD_MULTIPLE
-        assert result["data"][CONF_DISRUPTION_MULTIPLE_COUNT] == DISRUPTION_MULTIPLE_SERVICES
+        assert result["data"][CONF_SEVERE_DELAY_THRESHOLD] == DEFAULT_SEVERE_DELAY_THRESHOLD
+        assert result["data"][CONF_MAJOR_DELAY_THRESHOLD] == DEFAULT_MAJOR_DELAY_THRESHOLD
+        assert result["data"][CONF_MINOR_DELAY_THRESHOLD] == DEFAULT_MINOR_DELAY_THRESHOLD
 
     async def test_duplicate_route_aborts(self, hass: HomeAssistant, mock_config_entry):
         """Test that duplicate routes are detected and abort."""
@@ -362,9 +362,9 @@ class TestConfigFlow:
                 CONF_TIME_WINDOW: 60,
                 CONF_NUM_SERVICES: 3,
                 CONF_NIGHT_UPDATES: False,
-                CONF_DISRUPTION_SINGLE_DELAY: DISRUPTION_DELAY_THRESHOLD_SINGLE,
-                CONF_DISRUPTION_MULTIPLE_DELAY: DISRUPTION_DELAY_THRESHOLD_MULTIPLE,
-                CONF_DISRUPTION_MULTIPLE_COUNT: DISRUPTION_MULTIPLE_SERVICES,
+                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
+                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
+                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
             },
         )
 
@@ -401,9 +401,9 @@ class TestOptionsFlow:
                 CONF_TIME_WINDOW: 90,
                 CONF_NUM_SERVICES: 5,
                 CONF_NIGHT_UPDATES: False,
-                CONF_DISRUPTION_SINGLE_DELAY: 20,
-                CONF_DISRUPTION_MULTIPLE_DELAY: 12,
-                CONF_DISRUPTION_MULTIPLE_COUNT: 3,
+                CONF_SEVERE_DELAY_THRESHOLD: 20,
+                CONF_MAJOR_DELAY_THRESHOLD: 12,
+                CONF_MINOR_DELAY_THRESHOLD: 5,
             },
         )
 
@@ -411,6 +411,6 @@ class TestOptionsFlow:
         assert result["data"][CONF_TIME_WINDOW] == 90
         assert result["data"][CONF_NUM_SERVICES] == 5
         assert result["data"][CONF_NIGHT_UPDATES] is False
-        assert result["data"][CONF_DISRUPTION_SINGLE_DELAY] == 20
-        assert result["data"][CONF_DISRUPTION_MULTIPLE_DELAY] == 12
-        assert result["data"][CONF_DISRUPTION_MULTIPLE_COUNT] == 3
+        assert result["data"][CONF_SEVERE_DELAY_THRESHOLD] == 20
+        assert result["data"][CONF_MAJOR_DELAY_THRESHOLD] == 12
+        assert result["data"][CONF_MINOR_DELAY_THRESHOLD] == 5
