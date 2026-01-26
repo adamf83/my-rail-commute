@@ -6,31 +6,6 @@
 
 A custom Home Assistant integration that tracks regular commutes using National Rail real-time data from the Darwin API. Monitor train services, get disruption alerts, and automate your commuting routine.
 
-## Recent Changes (v1.1.0)
-
-### Simplified Threshold Configuration
-The threshold system has been completely redesigned to be more intuitive:
-
-**Old System (Complex):**
-- Disruption Single Delay: 15 min
-- Disruption Multiple Delay: 10 min
-- Number of Trains for Alert: 2
-
-**New System (Simple):**
-- Severe Disruption Threshold: 15 min (any train)
-- Major Delays Threshold: 10 min (any train)
-- Minor Delays Threshold: 3 min (any train)
-
-All three thresholds are now fully customizable, and the status hierarchy is based simply on the maximum delay across all trains. Validation ensures thresholds maintain logical order: Severe ≥ Major ≥ Minor ≥ 1 minute.
-
-### Bug Fixes
-- **Fixed delayed_count attribute**: Now correctly shows ALL delayed trains, not just those meeting severe disruption thresholds
-- **Fixed cancelled_count attribute**: Now shows actual cancelled train count consistently across all sensors
-- **Removed confusing attributes**: Removed `disruption_type` and `affected_services` which were causing confusion
-
-### Automatic Migration
-Existing configurations automatically migrate to the new format when you access the integration settings. No manual changes required!
-
 ## Features
 
 - **Real-time Train Tracking**: Monitor upcoming train services between any two UK rail stations
