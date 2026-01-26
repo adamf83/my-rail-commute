@@ -29,51 +29,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Debug logging for data updates and sensor state calculations
 
-## [1.0.0] - 2025-12
-
-### Added
-- State-based Status sensor (`sensor.{commute_name}_status`) for easier automations
-  - Hierarchical states: Normal, Minor Delays, Major Delays, Severe Disruption, Critical
-  - Dynamic icons based on status
-  - Rich attributes including delay counts and max delay minutes
-- Has Disruption binary sensor with Yes/No display
-- Configurable disruption thresholds per commute
-- Platform change detection for train sensors
-  - `platform_changed` boolean attribute
-  - `previous_platform` attribute when platform changes
-- Automatic cleanup of stale train entities when reducing number of services
-- Individual train sensors architecture for tracking multiple trains
-- Next Train sensor for backward compatibility (mirrors Train 1)
-
-### Changed
-- Redesigned status, summary, and disruption sensors for better clarity
-- Reordered configuration fields for improved user experience
-- User-friendly labels for disruption threshold settings in translations
-- Disruption indicator display changed from On/Off to Yes/No
-
-### Fixed
-- Platform change detection logic improved for reliability
-- Test mock data format for expected_departure and estimated_arrival
-- HACS validation errors resolved
-- Thread naming in Python 3.12/3.13 compatibility
-- Options flow initialization in tests
-
-## [0.9.0] - 2025-11
+## [1.0.0] - 2026-01-XX
 
 ### Added
 - Initial public release
 - Real-time train tracking using National Rail Darwin API
 - Smart update intervals (peak/off-peak/night-time)
-- Disruption detection with binary sensor
 - Multiple sensor types:
-  - Commute Summary sensor
+  - Commute Summary sensor (`sensor.{commute_name}_summary`)
+  - Commute Status sensor (`sensor.{commute_name}_status`) for easier automations
+    - Hierarchical states: Normal, Minor Delays, Major Delays, Severe Disruption, Critical
+    - Dynamic icons based on status
+    - Rich attributes including delay counts and max delay minutes
   - Individual train sensors (1-10 configurable)
-  - Disruption binary sensor
+  - Next Train sensor for convenience (mirrors Train 1)
+  - Has Disruption binary sensor with Yes/No display
 - Rich sensor data including:
   - Platforms and platform changes
   - Delays and cancellation reasons
   - Calling points
   - Expected vs scheduled times
+  - Platform change detection (`platform_changed` and `previous_platform` attributes)
+- Disruption detection with configurable thresholds per commute
 - Multi-route support for multiple commutes
 - UI-based configuration through config flow
 - Time window configuration (15-120 minutes)
@@ -81,11 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Night-time update toggle
 - HACS compatibility
 - Custom Lovelace card support via separate repository
+- Automatic cleanup of stale train entities when reducing number of services
 
 ### Changed
-- Rebranded from "National Rail Commute" to "My Rail Commute"
-- Improved API error handling and retry logic
-- Enhanced debug logging capabilities
+- User-friendly labels for disruption threshold settings in translations
+- Reordered configuration fields for improved user experience
 
 ### Fixed
 - API endpoint structure and base URL corrections
@@ -94,9 +71,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Manual refresh to always fetch fresh data
 - Night-time pause using long interval instead of None
 - Prevention of stale overnight data in morning updates
-- Options flow instantiation for Home Assistant 2026.1+
+- Platform change detection logic improved for reliability
+- Test mock data format for expected_departure and estimated_arrival
+- HACS validation errors resolved
+- Thread naming in Python 3.12/3.13 compatibility
+- Options flow initialization in tests
 - Automatic API key reuse for multiple commute routes
 
 [1.1.0]: https://github.com/adamf83/my-rail-commute/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/adamf83/my-rail-commute/compare/v0.9.0...v1.0.0
-[0.9.0]: https://github.com/adamf83/my-rail-commute/releases/tag/v0.9.0
+[1.0.0]: https://github.com/adamf83/my-rail-commute/releases/tag/v1.0.0
