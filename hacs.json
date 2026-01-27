@@ -1,6 +1,5 @@
 {
   "name": "My Rail Commute",
   "render_readme": true,
-  "homeassistant": "2024.1.0",
-  "check_brands": false
+  "homeassistant": "2024.1.0"
 }
