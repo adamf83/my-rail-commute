@@ -118,6 +118,14 @@ class NationalRailAPI:
                             )
                         raise RateLimitError(ERROR_RATE_LIMIT)
 
+                    if response.status == 400:
+                        _LOGGER.error(
+                            "Invalid request (400) for endpoint: %s. "
+                            "This typically indicates an invalid CRS station code",
+                            endpoint,
+                        )
+                        raise InvalidStationError(ERROR_INVALID_STATION)
+
                     if response.status == 404:
                         _LOGGER.error("Station not found (404) for endpoint: %s", endpoint)
                         raise InvalidStationError(ERROR_INVALID_STATION)

@@ -138,6 +138,17 @@ class TestValidateStation:
             with pytest.raises(InvalidStationError):
                 await api_client.validate_station("XYZ")
 
+    async def test_validate_station_bad_request(self, api_client):
+        """Test station validation with 400 bad request (invalid CRS code)."""
+        with aioresponses() as mock:
+            mock.get(
+                f"{API_BASE_URL}/GetDepartureBoard/PAS?numRows=1",
+                status=400,
+            )
+
+            with pytest.raises(InvalidStationError):
+                await api_client.validate_station("PAS")
+
     async def test_validate_station_uppercase_conversion(self, api_client):
         """Test that station codes are converted to uppercase."""
         with aioresponses() as mock:
@@ -210,6 +221,17 @@ class TestGetDepartureBoard:
 
             with pytest.raises(InvalidStationError):
                 await api_client.get_departure_board("XYZ", "RDG")
+
+    async def test_get_departure_board_bad_request(self, api_client):
+        """Test departure board with 400 bad request (invalid CRS code)."""
+        with aioresponses() as mock:
+            mock.get(
+                f"{API_BASE_URL}/GetDepBoardWithDetails/PAS?filterCrs=RDG&timeWindow=60&numRows=10",
+                status=400,
+            )
+
+            with pytest.raises(InvalidStationError):
+                await api_client.get_departure_board("PAS", "RDG")
 
 
 class TestParseService:
