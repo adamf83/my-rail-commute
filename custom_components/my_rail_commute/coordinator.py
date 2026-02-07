@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -43,6 +44,8 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_TIME_FORMAT_RE = re.compile(r"^\d{2}:\d{2}$")
 
 
 class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
@@ -259,7 +262,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             # Get departure time (prefer expected, fallback to scheduled)
             departure_time = service.get("expected_departure") or service.get("scheduled_departure")
 
-            if not departure_time or ":" not in departure_time:
+            if not departure_time or not _TIME_FORMAT_RE.match(departure_time):
                 # If we can't parse the time, keep the service
                 filtered_services.append(service)
                 continue

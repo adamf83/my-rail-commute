@@ -331,6 +331,32 @@ class TestParseService:
         assert result["status"] == STATUS_DELAYED
         assert result["delay_minutes"] == 15  # Crosses midnight
 
+    @pytest.mark.parametrize(
+        ("std", "etd"),
+        [
+            ("08:35", "9:05"),        # Single-digit hour
+            ("08:35", "abc:de"),      # Non-numeric
+            ("08:35", "09:05:30"),    # HH:MM:SS instead of HH:MM
+            ("8:35", "09:05"),        # Single-digit hour in std
+            ("08:35", "Delayed: 5"),  # Text with colon
+        ],
+    )
+    async def test_parse_service_invalid_time_format_no_delay(self, api_client, std, etd):
+        """Test that invalid time formats don't produce a delay calculation."""
+        service_data = {
+            "std": std,
+            "etd": etd,
+            "platform": "1",
+            "operator": "Test Operator",
+            "serviceID": "service_invalid",
+            "destination": [{"locationName": "Test"}],
+        }
+
+        result = api_client._parse_service(service_data)
+
+        # Delay should remain 0 since the time format is invalid
+        assert result["delay_minutes"] == 0
+
 
 class TestAPIRetryLogic:
     """Tests for API retry logic."""
