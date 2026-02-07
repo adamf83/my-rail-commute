@@ -26,6 +26,7 @@ from .const import (
     DEFAULT_MINOR_DELAY_THRESHOLD,
     DEFAULT_SEVERE_DELAY_THRESHOLD,
     DOMAIN,
+    MIN_DELAY_THRESHOLD,
     NIGHT_HOURS,
     PEAK_HOURS,
     STATUS_CANCELLED,
@@ -89,6 +90,26 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             self.major_delay_threshold = int(
                 config.get(CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD)
             )
+            self.minor_delay_threshold = DEFAULT_MINOR_DELAY_THRESHOLD
+
+        # Validate threshold hierarchy (catches manually edited .storage files)
+        if not (
+            self.severe_delay_threshold
+            >= self.major_delay_threshold
+            >= self.minor_delay_threshold
+            >= MIN_DELAY_THRESHOLD
+        ):
+            _LOGGER.warning(
+                "Invalid delay threshold hierarchy detected: "
+                "severe (%s) >= major (%s) >= minor (%s) >= %s. "
+                "Resetting to defaults",
+                self.severe_delay_threshold,
+                self.major_delay_threshold,
+                self.minor_delay_threshold,
+                MIN_DELAY_THRESHOLD,
+            )
+            self.severe_delay_threshold = DEFAULT_SEVERE_DELAY_THRESHOLD
+            self.major_delay_threshold = DEFAULT_MAJOR_DELAY_THRESHOLD
             self.minor_delay_threshold = DEFAULT_MINOR_DELAY_THRESHOLD
 
         # Station names (will be populated on first update)
