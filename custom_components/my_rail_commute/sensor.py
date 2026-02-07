@@ -320,9 +320,6 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
                 default=0
             )
 
-        # Include disruption information for context
-        disruption = data.get("disruption", {})
-
         return {
             "total_trains": total_trains,
             "on_time_count": on_time,
@@ -330,7 +327,7 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
             "major_delays_count": major_delays,
             "cancelled_count": cancelled_count,
             "max_delay_minutes": max_delay,
-            "disruption_threshold_met": disruption.get("has_disruption", False),
+            "disruption_threshold_met": data.get("overall_status", STATUS_NORMAL) != STATUS_NORMAL,
             ATTR_ORIGIN: data.get("origin"),
             ATTR_ORIGIN_NAME: data.get("origin_name"),
             ATTR_DESTINATION: data.get("destination"),
