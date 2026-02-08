@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -24,6 +25,8 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_TIME_FORMAT_RE = re.compile(r"^\d{2}:\d{2}$")
 
 
 class NationalRailAPIError(Exception):
@@ -298,7 +301,7 @@ class NationalRailAPI:
                 status = STATUS_DELAYED
                 expected_departure = etd
                 # Try to parse delay from etd if it's a time
-                if ":" in etd and ":" in std:
+                if _TIME_FORMAT_RE.match(etd) and _TIME_FORMAT_RE.match(std):
                     try:
                         # Use a reference date to parse times and handle midnight crossing
                         std_time = datetime.strptime(f"2000-01-01 {std}", "%Y-%m-%d %H:%M")

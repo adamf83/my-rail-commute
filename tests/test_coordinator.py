@@ -110,3 +110,41 @@ async def test_invalid_thresholds_reset_to_defaults(
     assert coordinator.major_delay_threshold == DEFAULT_MAJOR_DELAY_THRESHOLD
     assert coordinator.minor_delay_threshold == DEFAULT_MINOR_DELAY_THRESHOLD
     assert "Invalid delay threshold hierarchy detected" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "departure_time",
+    [
+        "9:05",          # Single-digit hour
+        "abc:de",        # Non-numeric
+        "09:05:30",      # HH:MM:SS instead of HH:MM
+        "Delayed: 5",    # Text with colon
+        "",              # Empty string
+        None,            # None value
+    ],
+)
+async def test_filter_departed_trains_keeps_invalid_time_format(
+    hass: HomeAssistant,
+    departure_time: str | None,
+) -> None:
+    """Test that services with invalid time formats are kept (not filtered out)."""
+    test_time = datetime(2024, 1, 15, 12, 0, 0, tzinfo=dt_util.UTC)
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=test_time,
+    ):
+        api = AsyncMock()
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass, api, _make_config()
+        )
+
+    service = {
+        "scheduled_departure": "08:00",
+        "expected_departure": departure_time,
+        "is_cancelled": False,
+    }
+
+    result = coordinator._filter_departed_trains([service])
+
+    # Service should be kept since the time format is invalid/unparseable
+    assert len(result) == 1
