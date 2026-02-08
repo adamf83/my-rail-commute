@@ -260,7 +260,10 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 continue
 
             # Get departure time (prefer expected, fallback to scheduled)
-            departure_time = service.get("expected_departure") or service.get("scheduled_departure")
+            if "expected_departure" in service:
+                departure_time = service["expected_departure"]
+            else:
+                departure_time = service.get("scheduled_departure")
 
             if not departure_time or not _TIME_FORMAT_RE.match(departure_time):
                 # If we can't parse the time, keep the service
