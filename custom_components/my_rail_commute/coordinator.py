@@ -1,6 +1,7 @@
 """Data update coordinator for My Rail Commute integration."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
@@ -68,6 +69,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         self.config = config
         self._failed_updates = 0
         self._max_failed_updates = 3
+        self._update_interval_lock = asyncio.Lock()
 
         # Get configuration
         self.origin = config[CONF_ORIGIN]
@@ -168,10 +170,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Starting data update for %s -> %s", self.origin, self.destination)
 
         # Update interval may have changed (e.g., switching between peak/off-peak/night)
-        new_interval = self._get_update_interval()
-        if new_interval != self.update_interval:
-            _LOGGER.debug("Updating interval from %s to %s", self.update_interval, new_interval)
-            self.update_interval = new_interval
+        # Use async lock to prevent race conditions with concurrent updates
+        async with self._update_interval_lock:
+            new_interval = self._get_update_interval()
+            if new_interval != self.update_interval:
+                _LOGGER.debug("Updating interval from %s to %s", self.update_interval, new_interval)
+                self.update_interval = new_interval
 
         try:
             _LOGGER.debug(
