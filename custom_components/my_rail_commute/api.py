@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -28,6 +29,12 @@ _LOGGER = logging.getLogger(__name__)
 
 _TIME_FORMAT_RE = re.compile(r"^\d{2}:\d{2}$")
 
+# Rate limit configuration
+# These defaults are conservative; adjust based on actual API limits
+DEFAULT_RATE_LIMIT_PER_MINUTE = 10
+DEFAULT_RATE_LIMIT_PER_HOUR = 100
+RATE_LIMIT_THROTTLE_THRESHOLD = 0.8  # Throttle at 80% of limit
+
 
 class NationalRailAPIError(Exception):
     """Base exception for Rail API errors."""
@@ -48,12 +55,20 @@ class RateLimitError(NationalRailAPIError):
 class NationalRailAPI:
     """Rail API client for Live Departure Boards."""
 
-    def __init__(self, api_key: str, session: aiohttp.ClientSession) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        session: aiohttp.ClientSession,
+        rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
+        rate_limit_per_hour: int = DEFAULT_RATE_LIMIT_PER_HOUR,
+    ) -> None:
         """Initialize the API client.
 
         Args:
             api_key: Rail Data Marketplace API key
             session: aiohttp client session
+            rate_limit_per_minute: Maximum requests per minute
+            rate_limit_per_hour: Maximum requests per hour
         """
         self._api_key = api_key
         self._session = session
@@ -63,6 +78,129 @@ class NationalRailAPI:
             "User-Agent": USER_AGENT,
             "Accept": "application/json",
         }
+
+        # Rate limit tracking
+        self._rate_limit_per_minute = rate_limit_per_minute
+        self._rate_limit_per_hour = rate_limit_per_hour
+        self._call_timestamps: deque[datetime] = deque()  # Sliding window of API call times
+
+    def _clean_old_calls(self, window_minutes: int) -> None:
+        """Remove API call timestamps older than the specified window.
+
+        Args:
+            window_minutes: Time window in minutes to keep
+        """
+        cutoff_time = datetime.now() - timedelta(minutes=window_minutes)
+        while self._call_timestamps and self._call_timestamps[0] < cutoff_time:
+            self._call_timestamps.popleft()
+
+    def _get_calls_in_window(self, window_minutes: int) -> int:
+        """Get the number of API calls within the specified time window.
+
+        Args:
+            window_minutes: Time window in minutes
+
+        Returns:
+            Number of calls within the window
+        """
+        self._clean_old_calls(window_minutes)
+        return len(self._call_timestamps)
+
+    def _check_rate_limit_proximity(self) -> tuple[bool, float]:
+        """Check if we're approaching rate limits.
+
+        Returns:
+            Tuple of (should_throttle, wait_seconds)
+            - should_throttle: True if we should wait before making the next call
+            - wait_seconds: How long to wait (0 if no throttling needed)
+        """
+        # Check per-minute limit
+        calls_per_minute = self._get_calls_in_window(1)
+        minute_threshold = int(self._rate_limit_per_minute * RATE_LIMIT_THROTTLE_THRESHOLD)
+
+        if calls_per_minute >= self._rate_limit_per_minute:
+            # At or over limit - calculate wait time until oldest call expires
+            if self._call_timestamps:
+                oldest_call = self._call_timestamps[0]
+                wait_until = oldest_call + timedelta(minutes=1)
+                wait_seconds = max(0, (wait_until - datetime.now()).total_seconds())
+                _LOGGER.warning(
+                    "Rate limit reached: %s/%s calls per minute. Waiting %.1f seconds.",
+                    calls_per_minute,
+                    self._rate_limit_per_minute,
+                    wait_seconds,
+                )
+                return True, wait_seconds
+        elif calls_per_minute >= minute_threshold:
+            # Approaching limit - add small delay to spread out requests
+            wait_seconds = 60.0 / self._rate_limit_per_minute
+            _LOGGER.info(
+                "Approaching rate limit: %s/%s calls per minute (threshold: %s). "
+                "Adding %.1f second delay.",
+                calls_per_minute,
+                self._rate_limit_per_minute,
+                minute_threshold,
+                wait_seconds,
+            )
+            return True, wait_seconds
+
+        # Check per-hour limit
+        calls_per_hour = self._get_calls_in_window(60)
+        hour_threshold = int(self._rate_limit_per_hour * RATE_LIMIT_THROTTLE_THRESHOLD)
+
+        if calls_per_hour >= self._rate_limit_per_hour:
+            # At or over limit
+            if self._call_timestamps:
+                # Find oldest call and wait until it expires from the hour window
+                oldest_call = self._call_timestamps[0]
+                wait_until = oldest_call + timedelta(hours=1)
+                wait_seconds = max(0, (wait_until - datetime.now()).total_seconds())
+                _LOGGER.warning(
+                    "Hourly rate limit reached: %s/%s calls per hour. Waiting %.1f seconds.",
+                    calls_per_hour,
+                    self._rate_limit_per_hour,
+                    wait_seconds,
+                )
+                return True, wait_seconds
+        elif calls_per_hour >= hour_threshold:
+            # Approaching hourly limit - add delay
+            wait_seconds = 3600.0 / self._rate_limit_per_hour
+            _LOGGER.info(
+                "Approaching hourly rate limit: %s/%s calls per hour (threshold: %s). "
+                "Adding %.1f second delay.",
+                calls_per_hour,
+                self._rate_limit_per_hour,
+                hour_threshold,
+                wait_seconds,
+            )
+            return True, wait_seconds
+
+        return False, 0.0
+
+    async def _throttle_if_needed(self) -> None:
+        """Proactively throttle requests if approaching rate limits."""
+        should_throttle, wait_seconds = self._check_rate_limit_proximity()
+        if should_throttle and wait_seconds > 0:
+            _LOGGER.debug("Throttling request for %.1f seconds", wait_seconds)
+            await asyncio.sleep(wait_seconds)
+
+    def _record_api_call(self) -> None:
+        """Record a successful API call for rate limit tracking."""
+        self._call_timestamps.append(datetime.now())
+        # Keep only last hour of data to prevent unbounded growth
+        self._clean_old_calls(60)
+
+        # Log current usage periodically (every 10th call)
+        if len(self._call_timestamps) % 10 == 0:
+            calls_per_minute = self._get_calls_in_window(1)
+            calls_per_hour = self._get_calls_in_window(60)
+            _LOGGER.debug(
+                "API usage: %s/%s per minute, %s/%s per hour",
+                calls_per_minute,
+                self._rate_limit_per_minute,
+                calls_per_hour,
+                self._rate_limit_per_hour,
+            )
 
     async def _request(
         self,
@@ -87,6 +225,9 @@ class NationalRailAPI:
             RateLimitError: If rate limit is exceeded
             NationalRailAPIError: For other API errors
         """
+        # Proactively check and throttle if approaching rate limits
+        await self._throttle_if_needed()
+
         url = f"{self._base_url}/{endpoint}"
 
         try:
@@ -155,6 +296,10 @@ class NationalRailAPI:
                     response.raise_for_status()
 
                     data = await response.json()
+
+                    # Record successful API call for rate limit tracking
+                    self._record_api_call()
+
                     return data
 
         except asyncio.TimeoutError as err:
