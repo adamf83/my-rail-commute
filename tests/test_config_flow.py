@@ -19,6 +19,7 @@ from custom_components.my_rail_commute.config_flow import (
     validate_stations,
 )
 from custom_components.my_rail_commute.const import (
+    CONF_ADD_RETURN_JOURNEY,
     CONF_COMMUTE_NAME,
     CONF_DESTINATION,
     CONF_MAJOR_DELAY_THRESHOLD,
@@ -320,6 +321,16 @@ class TestConfigFlow:
             },
         )
 
+        # No existing reverse route, so the return_journey step is shown
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "return_journey"
+
+        # Step 4: Return journey - decline
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_ADD_RETURN_JOURNEY: False},
+        )
+
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
         assert result["title"] == "Morning Commute"
         assert result["data"][CONF_API_KEY] == "valid_key"
@@ -331,6 +342,125 @@ class TestConfigFlow:
         assert result["data"][CONF_SEVERE_DELAY_THRESHOLD] == DEFAULT_SEVERE_DELAY_THRESHOLD
         assert result["data"][CONF_MAJOR_DELAY_THRESHOLD] == DEFAULT_MAJOR_DELAY_THRESHOLD
         assert result["data"][CONF_MINOR_DELAY_THRESHOLD] == DEFAULT_MINOR_DELAY_THRESHOLD
+
+    async def _complete_flow_to_settings(self, hass, flow_id):
+        """Helper: run user + stations steps and return at the settings form."""
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_api_key",
+            return_value={"title": "My Rail Commute"},
+        ):
+            result = await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": config_entries.SOURCE_USER},
+                data={"api_key": "valid_key"},
+            )
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_stations",
+            return_value={
+                "origin_name": "London Paddington",
+                "destination_name": "Reading",
+            },
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
+            )
+        return result
+
+    async def _submit_settings(self, hass, flow_id):
+        """Helper: submit default settings and return the result."""
+        return await hass.config_entries.flow.async_configure(
+            flow_id,
+            user_input={
+                CONF_COMMUTE_NAME: "Morning Commute",
+                CONF_TIME_WINDOW: 60,
+                CONF_NUM_SERVICES: 3,
+                CONF_NIGHT_UPDATES: False,
+                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
+                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
+                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
+            },
+        )
+
+    async def test_return_journey_step_offered_when_reverse_missing(
+        self, hass: HomeAssistant
+    ):
+        """Return journey form is shown when the reverse route doesn't exist."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(hass, result["flow_id"])
+
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "return_journey"
+
+    async def test_return_journey_step_skipped_when_reverse_exists(
+        self, hass: HomeAssistant
+    ):
+        """Return journey form is skipped when the reverse route already exists."""
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        reverse_entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={},
+            unique_id="RDG_PAD",
+        )
+        reverse_entry.add_to_hass(hass)
+
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(hass, result["flow_id"])
+
+        # Should skip return_journey and create entry directly
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+
+    async def test_return_journey_accepted_schedules_reverse_flow(
+        self, hass: HomeAssistant
+    ):
+        """Accepting the offer schedules creation of the reverse commute."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(hass, result["flow_id"])
+        assert result["step_id"] == "return_journey"
+
+        with patch.object(
+            hass.config_entries.flow,
+            "async_init",
+            wraps=hass.config_entries.flow.async_init,
+        ) as mock_init:
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ADD_RETURN_JOURNEY: True},
+            )
+
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert mock_init.call_count == 1
+        call_args = mock_init.call_args
+        assert call_args.args[0] == DOMAIN
+        assert call_args.kwargs["context"]["source"] == config_entries.SOURCE_IMPORT
+        reverse_data = call_args.kwargs["data"]
+        assert reverse_data[CONF_ORIGIN] == "RDG"
+        assert reverse_data[CONF_DESTINATION] == "PAD"
+        assert reverse_data[CONF_COMMUTE_NAME] == "Reading to London Paddington"
+        assert reverse_data[CONF_NIGHT_UPDATES] is False
+
+    async def test_return_journey_declined_creates_only_primary(
+        self, hass: HomeAssistant
+    ):
+        """Declining the offer creates only the primary entry."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(hass, result["flow_id"])
+        assert result["step_id"] == "return_journey"
+
+        with patch.object(
+            hass.config_entries.flow,
+            "async_init",
+            wraps=hass.config_entries.flow.async_init,
+        ) as mock_init:
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ADD_RETURN_JOURNEY: False},
+            )
+
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        mock_init.assert_not_called()
 
     async def test_duplicate_route_aborts(self, hass: HomeAssistant, mock_config_entry):
         """Test that duplicate routes are detected and abort."""

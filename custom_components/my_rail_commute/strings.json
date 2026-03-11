@@ -28,6 +28,13 @@
           "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates"
         }
+      },
+      "return_journey": {
+        "title": "Return Journey",
+        "description": "Would you also like to set up the return journey from {destination} to {origin}? It will use the same settings as this commute.",
+        "data": {
+          "add_return_journey": "Set up return journey"
+        }
       }
     },
     "error": {
