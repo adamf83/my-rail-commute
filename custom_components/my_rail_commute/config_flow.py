@@ -20,6 +20,7 @@ from .api import (
     NationalRailAPIError,
 )
 from .const import (
+    CONF_ADD_RETURN_JOURNEY,
     CONF_COMMUTE_NAME,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
@@ -157,6 +158,14 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._destination: str | None = None
         self._origin_name: str | None = None
         self._destination_name: str | None = None
+        self._commute_name: str | None = None
+        self._time_window: int | None = None
+        self._num_services: int | None = None
+        self._night_updates: bool | None = None
+        self._severe_delay_threshold: int | None = None
+        self._major_delay_threshold: int | None = None
+        self._minor_delay_threshold: int | None = None
+        self._departed_train_grace_period: int | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -287,10 +296,19 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.error("Invalid delay thresholds: %s", err)
 
             if not errors:
-                # Create the config entry
-                commute_name = user_input.get(
+                # Store settings in instance variables
+                self._commute_name = user_input.get(
                     CONF_COMMUTE_NAME,
                     f"{self._origin_name} to {self._destination_name}",
+                )
+                self._time_window = user_input[CONF_TIME_WINDOW]
+                self._num_services = user_input[CONF_NUM_SERVICES]
+                self._night_updates = user_input[CONF_NIGHT_UPDATES]
+                self._severe_delay_threshold = user_input[CONF_SEVERE_DELAY_THRESHOLD]
+                self._major_delay_threshold = user_input[CONF_MAJOR_DELAY_THRESHOLD]
+                self._minor_delay_threshold = user_input[CONF_MINOR_DELAY_THRESHOLD]
+                self._departed_train_grace_period = user_input.get(
+                    CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
                 )
 
                 # Set unique ID based on route
@@ -299,22 +317,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
                 self._abort_if_unique_id_configured()
 
-                return self.async_create_entry(
-                title=commute_name,
-                data={
-                    CONF_API_KEY: self._api_key,
-                    CONF_ORIGIN: self._origin,
-                    CONF_DESTINATION: self._destination,
-                    CONF_COMMUTE_NAME: commute_name,
-                    CONF_TIME_WINDOW: user_input[CONF_TIME_WINDOW],
-                    CONF_NUM_SERVICES: user_input[CONF_NUM_SERVICES],
-                    CONF_NIGHT_UPDATES: user_input[CONF_NIGHT_UPDATES],
-                    CONF_SEVERE_DELAY_THRESHOLD: user_input[CONF_SEVERE_DELAY_THRESHOLD],
-                    CONF_MAJOR_DELAY_THRESHOLD: user_input[CONF_MAJOR_DELAY_THRESHOLD],
-                    CONF_MINOR_DELAY_THRESHOLD: user_input[CONF_MINOR_DELAY_THRESHOLD],
-                    CONF_DEPARTED_TRAIN_GRACE_PERIOD: user_input[CONF_DEPARTED_TRAIN_GRACE_PERIOD],
-                },
-            )
+                return await self.async_step_return_journey()
 
         # Default commute name
         default_name = f"{self._origin_name} to {self._destination_name}"
@@ -410,6 +413,104 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "origin": self._origin_name,
                 "destination": self._destination_name,
+            },
+        )
+
+    async def async_step_return_journey(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Offer to set up the reverse commute if it doesn't already exist.
+
+        Args:
+            user_input: User input data
+
+        Returns:
+            FlowResult for creating entry
+        """
+        reverse_unique_id = f"{self._destination}_{self._origin}"
+        reverse_exists = any(
+            entry.unique_id == reverse_unique_id
+            for entry in self._async_current_entries()
+        )
+
+        if reverse_exists:
+            return self._create_entry()
+
+        if user_input is not None:
+            if user_input.get(CONF_ADD_RETURN_JOURNEY, False):
+                self.hass.async_create_task(
+                    self.hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={"source": config_entries.SOURCE_IMPORT},
+                        data={
+                            CONF_API_KEY: self._api_key,
+                            CONF_ORIGIN: self._destination,
+                            CONF_DESTINATION: self._origin,
+                            CONF_COMMUTE_NAME: f"{self._destination_name} to {self._origin_name}",
+                            CONF_TIME_WINDOW: self._time_window,
+                            CONF_NUM_SERVICES: self._num_services,
+                            CONF_NIGHT_UPDATES: self._night_updates,
+                            CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
+                            CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
+                            CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
+                            CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
+                        },
+                    )
+                )
+            return self._create_entry()
+
+        return self.async_show_form(
+            step_id="return_journey",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_ADD_RETURN_JOURNEY, default=True): selector.BooleanSelector(),
+                }
+            ),
+            description_placeholders={
+                "origin": self._origin_name,
+                "destination": self._destination_name,
+            },
+        )
+
+    async def async_step_import(
+        self, user_input: dict[str, Any]
+    ) -> FlowResult:
+        """Handle automatic creation of a return journey config entry.
+
+        Called programmatically (no UI) when the user accepts the return
+        journey offer. Creates the reverse route using the same settings.
+
+        Args:
+            user_input: Pre-populated entry data for the reverse route
+
+        Returns:
+            FlowResult creating the entry, or aborting if already configured
+        """
+        await self.async_set_unique_id(
+            f"{user_input[CONF_ORIGIN]}_{user_input[CONF_DESTINATION]}"
+        )
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=user_input[CONF_COMMUTE_NAME],
+            data=user_input,
+        )
+
+    def _create_entry(self) -> FlowResult:
+        """Create the config entry using stored instance variables."""
+        return self.async_create_entry(
+            title=self._commute_name,
+            data={
+                CONF_API_KEY: self._api_key,
+                CONF_ORIGIN: self._origin,
+                CONF_DESTINATION: self._destination,
+                CONF_COMMUTE_NAME: self._commute_name,
+                CONF_TIME_WINDOW: self._time_window,
+                CONF_NUM_SERVICES: self._num_services,
+                CONF_NIGHT_UPDATES: self._night_updates,
+                CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
+                CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
+                CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
+                CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
             },
         )
 

@@ -16,6 +16,7 @@ CONF_SEVERE_DELAY_THRESHOLD: Final = "severe_delay_threshold"
 CONF_MAJOR_DELAY_THRESHOLD: Final = "major_delay_threshold"
 CONF_MINOR_DELAY_THRESHOLD: Final = "minor_delay_threshold"
 CONF_DEPARTED_TRAIN_GRACE_PERIOD: Final = "departed_train_grace_period"
+CONF_ADD_RETURN_JOURNEY: Final = "add_return_journey"
 
 # Legacy config keys (for migration)
 CONF_DISRUPTION_SINGLE_DELAY: Final = "disruption_single_delay"
