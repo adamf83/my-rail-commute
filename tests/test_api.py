@@ -233,6 +233,19 @@ class TestGetDepartureBoard:
             with pytest.raises(InvalidStationError):
                 await api_client.get_departure_board("PAS", "RDG")
 
+    async def test_get_departure_board_invalid_json(self, api_client):
+        """Test departure board raises NationalRailAPIError when API returns invalid JSON."""
+        with aioresponses() as mock:
+            mock.get(
+                f"{API_BASE_URL}/GetDepBoardWithDetails/PAD?filterCrs=WAT&timeWindow=60&numRows=10",
+                status=200,
+                body="<html>Bad Gateway</html>",
+                content_type="text/html",
+            )
+
+            with pytest.raises(NationalRailAPIError):
+                await api_client.get_departure_board("PAD", "WAT")
+
 
 class TestParseService:
     """Tests for service parsing."""

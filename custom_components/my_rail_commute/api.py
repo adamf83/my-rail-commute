@@ -295,7 +295,11 @@ class NationalRailAPI:
                     # Check for other non-success status codes
                     response.raise_for_status()
 
-                    data = await response.json()
+                    try:
+                        data = await response.json(content_type=None)
+                    except (ValueError, aiohttp.ContentTypeError) as err:
+                        _LOGGER.error("Invalid JSON response from API: %s", err)
+                        raise NationalRailAPIError(ERROR_API_UNAVAILABLE) from err
 
                     # Record successful API call for rate limit tracking
                     self._record_api_call()
