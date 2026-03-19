@@ -1,7 +1,10 @@
 """Config flow for My Rail Commute integration."""
 from __future__ import annotations
 
+import json
 import logging
+import math
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -43,6 +46,8 @@ from .const import (
     DEFAULT_SEVERE_DELAY_THRESHOLD,
     DEFAULT_TIME_WINDOW,
     DOMAIN,
+    LOCATION_SEARCH_MAX_RADIUS_MILES,
+    LOCATION_SEARCH_MIN_RADIUS_MILES,
     MAX_DELAY_THRESHOLD,
     MAX_GRACE_PERIOD,
     MAX_NUM_SERVICES,
@@ -54,6 +59,28 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate great-circle distance in miles using the haversine formula."""
+    R = 3958.8  # Earth radius in miles
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    return R * 2 * math.asin(math.sqrt(a))
+
+
+def _load_station_data() -> list[dict]:
+    """Load UK station data from bundled JSON file (blocking I/O)."""
+    data_path = Path(__file__).parent / "station_data.json"
+    with open(data_path) as f:
+        return json.load(f)
+
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -166,6 +193,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._major_delay_threshold: int | None = None
         self._minor_delay_threshold: int | None = None
         self._departed_train_grace_period: int | None = None
+        self._nearby_stations: list[tuple[float, dict]] | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -215,10 +243,53 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def _find_nearby_stations(self) -> list[tuple[float, dict]]:
+        """Find UK rail stations near the HA home location.
+
+        Searches within LOCATION_SEARCH_MIN_RADIUS_MILES first. If no stations
+        are found, expands the search up to LOCATION_SEARCH_MAX_RADIUS_MILES.
+
+        Returns:
+            List of (distance_miles, station_dict) tuples sorted by distance,
+            or an empty list if HA location is not set or no stations are found.
+        """
+        home_lat = self.hass.config.latitude
+        home_lon = self.hass.config.longitude
+
+        if not home_lat and not home_lon:
+            return []
+
+        try:
+            stations = await self.hass.async_add_executor_job(_load_station_data)
+        except (OSError, ValueError):
+            _LOGGER.warning("Could not load station data for location-based lookup")
+            return []
+
+        with_distances = [
+            (_haversine_miles(home_lat, home_lon, s["lat"], s["lon"]), s)
+            for s in stations
+        ]
+
+        nearby_min = sorted(
+            [(d, s) for d, s in with_distances if d <= LOCATION_SEARCH_MIN_RADIUS_MILES],
+            key=lambda x: x[0],
+        )
+        if nearby_min:
+            return nearby_min
+
+        return sorted(
+            [(d, s) for d, s in with_distances if d <= LOCATION_SEARCH_MAX_RADIUS_MILES],
+            key=lambda x: x[0],
+        )
+
     async def async_step_stations(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle station configuration step.
+
+        For origin, nearby stations (within 5–10 miles of the HA home location)
+        are presented as a dropdown. The user may also type a CRS code directly.
+        Destination is always a free-text CRS code entry.
 
         Args:
             user_input: User input data
@@ -228,9 +299,13 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         errors: dict[str, str] = {}
 
+        # Discover nearby stations once on first visit to this step
+        if self._nearby_stations is None:
+            self._nearby_stations = await self._find_nearby_stations()
+
         if user_input is not None:
             try:
-                origin = user_input[CONF_ORIGIN]
+                origin = user_input[CONF_ORIGIN].strip().upper()
                 destination = user_input[CONF_DESTINATION]
 
                 # Validate stations
@@ -238,8 +313,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self.hass, self._api_key, origin, destination
                 )
 
-                self._origin = origin.upper()
-                self._destination = destination.upper()
+                self._origin = origin
+                self._destination = destination.strip().upper()
                 self._origin_name = station_info["origin_name"]
                 self._destination_name = station_info["destination_name"]
 
@@ -257,9 +332,28 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
+        # Build origin field: dropdown of nearby stations (with manual entry
+        # fallback via custom_value=True), or plain text if none found
+        if self._nearby_stations:
+            origin_field = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(
+                            value=s["crs"],
+                            label=f"{s['name']} ({dist:.1f} mi)",
+                        )
+                        for dist, s in self._nearby_stations
+                    ],
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            )
+        else:
+            origin_field = str
+
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_ORIGIN): str,
+                vol.Required(CONF_ORIGIN): origin_field,
                 vol.Required(CONF_DESTINATION): str,
             }
         )

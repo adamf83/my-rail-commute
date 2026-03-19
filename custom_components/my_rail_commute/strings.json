@@ -10,9 +10,9 @@
       },
       "stations": {
         "title": "Configure Route",
-        "description": "Enter the origin and destination station codes (3-letter CRS codes, e.g., PAD for Paddington).",
+        "description": "Select your origin station from the nearby stations list, or type a 3-letter CRS code directly (e.g., PAD for Paddington). Enter the destination station CRS code.",
         "data": {
-          "origin": "Origin Station (CRS Code)",
+          "origin": "Origin Station",
           "destination": "Destination Station (CRS Code)"
         }
       },

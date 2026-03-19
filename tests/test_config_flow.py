@@ -15,6 +15,7 @@ from custom_components.my_rail_commute.api import (
 )
 from custom_components.my_rail_commute.config_flow import (
     NationalRailCommuteConfigFlow,
+    _haversine_miles,
     validate_api_key,
     validate_stations,
 )
@@ -544,3 +545,279 @@ class TestOptionsFlow:
         assert result["data"][CONF_SEVERE_DELAY_THRESHOLD] == 20
         assert result["data"][CONF_MAJOR_DELAY_THRESHOLD] == 12
         assert result["data"][CONF_MINOR_DELAY_THRESHOLD] == 5
+
+
+class TestHaversineDistance:
+    """Tests for the haversine distance calculation helper."""
+
+    def test_zero_distance_same_point(self):
+        """Distance between a point and itself is zero."""
+        dist = _haversine_miles(51.5154, -0.17546, 51.5154, -0.17546)
+        assert dist == pytest.approx(0.0, abs=0.001)
+
+    def test_known_distance_paddington_to_reading(self):
+        """London Paddington to Reading is roughly 36 miles."""
+        # PAD: 51.5154, -0.17546 / RDG: 51.4585, -0.9723
+        dist = _haversine_miles(51.5154, -0.17546, 51.4585, -0.9723)
+        assert 34.0 < dist < 38.0
+
+    def test_symmetry(self):
+        """Distance A→B equals distance B→A."""
+        d_ab = _haversine_miles(51.5154, -0.17546, 51.4585, -0.9723)
+        d_ba = _haversine_miles(51.4585, -0.9723, 51.5154, -0.17546)
+        assert d_ab == pytest.approx(d_ba, rel=1e-6)
+
+
+class TestFindNearbyStations:
+    """Tests for the _find_nearby_stations method."""
+
+    # London Paddington: reference home location
+    HOME_LAT = 51.5154
+    HOME_LON = -0.17546
+
+    # Station at exactly the home location (~0 miles)
+    STATION_AT_HOME = {"crs": "PAD", "name": "London Paddington", "lat": 51.5154, "lon": -0.17546}
+    # Station ~2 miles south (within 5 miles)
+    # lat 51.5154 - 0.029° ≈ 2 miles south
+    STATION_2_MILES = {"crs": "TS2", "name": "Test Station 2 Miles", "lat": 51.4864, "lon": -0.17546}
+    # Station ~6 miles south (within 10 miles but outside 5 miles)
+    # lat 51.5154 - 0.087° ≈ 6 miles south
+    STATION_6_MILES = {"crs": "TST", "name": "Test Station", "lat": 51.4284, "lon": -0.17546}
+    # Reading: ~35 miles away (well beyond 10 miles)
+    STATION_FAR = {"crs": "RDG", "name": "Reading", "lat": 51.4585, "lon": -0.9723}
+
+    async def test_returns_empty_when_location_is_zero(self, hass: HomeAssistant):
+        """Returns empty list when HA home location is (0, 0) — i.e. not configured."""
+        hass.config.latitude = 0.0
+        hass.config.longitude = 0.0
+
+        flow = NationalRailCommuteConfigFlow()
+        flow.hass = hass
+        result = await flow._find_nearby_stations()
+
+        assert result == []
+
+    async def test_returns_stations_within_5_miles(self, hass: HomeAssistant):
+        """Only stations within the 5-mile minimum radius are returned."""
+        hass.config.latitude = self.HOME_LAT
+        hass.config.longitude = self.HOME_LON
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            return_value=[self.STATION_AT_HOME, self.STATION_6_MILES, self.STATION_FAR],
+        ):
+            flow = NationalRailCommuteConfigFlow()
+            flow.hass = hass
+            result = await flow._find_nearby_stations()
+
+        assert len(result) == 1
+        _, station = result[0]
+        assert station["crs"] == "PAD"
+
+    async def test_expands_to_10_miles_when_none_within_5(self, hass: HomeAssistant):
+        """Expands to 10-mile max radius when no stations are within 5 miles."""
+        hass.config.latitude = self.HOME_LAT
+        hass.config.longitude = self.HOME_LON
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            return_value=[self.STATION_6_MILES, self.STATION_FAR],
+        ):
+            flow = NationalRailCommuteConfigFlow()
+            flow.hass = hass
+            result = await flow._find_nearby_stations()
+
+        assert len(result) == 1
+        _, station = result[0]
+        assert station["crs"] == "TST"
+
+    async def test_returns_empty_when_nothing_within_10_miles(self, hass: HomeAssistant):
+        """Returns empty list when no stations are within the 10-mile maximum."""
+        hass.config.latitude = self.HOME_LAT
+        hass.config.longitude = self.HOME_LON
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            return_value=[self.STATION_FAR],
+        ):
+            flow = NationalRailCommuteConfigFlow()
+            flow.hass = hass
+            result = await flow._find_nearby_stations()
+
+        assert result == []
+
+    async def test_results_sorted_nearest_first(self, hass: HomeAssistant):
+        """Returned stations are sorted by distance, nearest first."""
+        hass.config.latitude = self.HOME_LAT
+        hass.config.longitude = self.HOME_LON
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            # Provide farther station first to confirm sorting reorders them
+            return_value=[self.STATION_2_MILES, self.STATION_AT_HOME],
+        ):
+            flow = NationalRailCommuteConfigFlow()
+            flow.hass = hass
+            result = await flow._find_nearby_stations()
+
+        assert len(result) == 2
+        assert result[0][1]["crs"] == "PAD"   # nearest (~0 miles) first
+        assert result[1][1]["crs"] == "TS2"   # further (~2 miles) second
+
+    async def test_handles_station_data_load_failure(self, hass: HomeAssistant):
+        """Returns empty list gracefully if station data file cannot be read."""
+        hass.config.latitude = self.HOME_LAT
+        hass.config.longitude = self.HOME_LON
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            side_effect=OSError("File not found"),
+        ):
+            flow = NationalRailCommuteConfigFlow()
+            flow.hass = hass
+            result = await flow._find_nearby_stations()
+
+        assert result == []
+
+
+class TestStationsStepLocationBased:
+    """Integration tests for the stations step with location-based lookup."""
+
+    # Station ~6 miles from Paddington (between 5 and 10 miles)
+    NEARBY_STATION = {"crs": "TST", "name": "Test Station", "lat": 51.4284, "lon": -0.17546}
+    # Station at home location
+    STATION_AT_HOME = {"crs": "PAD", "name": "London Paddington", "lat": 51.5154, "lon": -0.17546}
+
+    async def _init_flow_to_stations(self, hass: HomeAssistant):
+        """Helper: start flow and advance past the API key step."""
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_api_key",
+            return_value={"title": "My Rail Commute"},
+        ):
+            return await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": config_entries.SOURCE_USER},
+                data={CONF_API_KEY: "valid_key"},
+            )
+
+    async def test_nearby_stations_used_as_origin_dropdown(self, hass: HomeAssistant):
+        """SelectSelector is used for origin when nearby stations are found."""
+        from homeassistant.helpers.selector import SelectSelector
+
+        hass.config.latitude = 51.5154
+        hass.config.longitude = -0.17546
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            return_value=[self.STATION_AT_HOME],
+        ):
+            result = await self._init_flow_to_stations(hass)
+
+        assert result["step_id"] == "stations"
+        # Inspect the schema: origin field should be a SelectSelector
+        schema_mapping = result["data_schema"].schema
+        origin_validator = next(
+            v for k, v in schema_mapping.items() if str(k) == CONF_ORIGIN
+        )
+        assert isinstance(origin_validator, SelectSelector)
+
+    async def test_manual_text_input_when_no_location_set(self, hass: HomeAssistant):
+        """Plain text str is used for origin when HA home location is (0, 0)."""
+        hass.config.latitude = 0.0
+        hass.config.longitude = 0.0
+
+        result = await self._init_flow_to_stations(hass)
+
+        assert result["step_id"] == "stations"
+        schema_mapping = result["data_schema"].schema
+        origin_validator = next(
+            v for k, v in schema_mapping.items() if str(k) == CONF_ORIGIN
+        )
+        assert origin_validator is str
+
+    async def test_manual_text_input_when_no_nearby_stations(self, hass: HomeAssistant):
+        """Plain text str is used for origin when no stations are within 10 miles."""
+        hass.config.latitude = 51.5154
+        hass.config.longitude = -0.17546
+
+        far_stations = [{"crs": "MAN", "name": "Manchester Piccadilly", "lat": 53.4777, "lon": -2.2309}]
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            return_value=far_stations,
+        ):
+            result = await self._init_flow_to_stations(hass)
+
+        assert result["step_id"] == "stations"
+        schema_mapping = result["data_schema"].schema
+        origin_validator = next(
+            v for k, v in schema_mapping.items() if str(k) == CONF_ORIGIN
+        )
+        assert origin_validator is str
+
+    async def test_station_selection_from_dropdown_proceeds(self, hass: HomeAssistant):
+        """Selecting a CRS from the dropdown validates and proceeds to settings."""
+        hass.config.latitude = 51.5154
+        hass.config.longitude = -0.17546
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            return_value=[self.STATION_AT_HOME],
+        ):
+            result = await self._init_flow_to_stations(hass)
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_stations",
+            return_value={"origin_name": "London Paddington", "destination_name": "Reading"},
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
+            )
+
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "settings"
+
+    async def test_custom_crs_entry_in_dropdown_proceeds(self, hass: HomeAssistant):
+        """Typing a custom CRS code in the SelectSelector (custom_value=True) works."""
+        hass.config.latitude = 51.5154
+        hass.config.longitude = -0.17546
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow._load_station_data",
+            return_value=[self.STATION_AT_HOME],
+        ):
+            result = await self._init_flow_to_stations(hass)
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_stations",
+            return_value={"origin_name": "Manchester Piccadilly", "destination_name": "Leeds"},
+        ):
+            # User types a custom CRS not in the nearby list
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ORIGIN: "MAN", CONF_DESTINATION: "LDS"},
+            )
+
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "settings"
+
+    async def test_origin_crs_normalised_to_uppercase(self, hass: HomeAssistant):
+        """Origin CRS code entered in lowercase is normalised to uppercase."""
+        hass.config.latitude = 0.0
+        hass.config.longitude = 0.0
+
+        result = await self._init_flow_to_stations(hass)
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_stations",
+            return_value={"origin_name": "London Paddington", "destination_name": "Reading"},
+        ) as mock_validate:
+            await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ORIGIN: "pad", CONF_DESTINATION: "rdg"},
+            )
+
+        call_args = mock_validate.call_args
+        assert call_args.args[2] == "PAD"   # origin normalised
+        assert call_args.args[3] == "rdg"   # destination passed as-is to validate_stations

@@ -42,6 +42,10 @@ MAX_NUM_SERVICES: Final = 10
 MIN_GRACE_PERIOD: Final = 0  # minutes
 MAX_GRACE_PERIOD: Final = 15  # minutes
 
+# Location-based station lookup radius (miles)
+LOCATION_SEARCH_MIN_RADIUS_MILES: Final = 5.0
+LOCATION_SEARCH_MAX_RADIUS_MILES: Final = 10.0
+
 # Update intervals (in minutes)
 UPDATE_INTERVAL_PEAK: Final = timedelta(minutes=2)
 UPDATE_INTERVAL_OFF_PEAK: Final = timedelta(minutes=5)
