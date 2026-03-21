@@ -364,28 +364,38 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
         self._current_service_id: str | None = None
 
         # Icon based on train number (next train gets special icon)
-        if train_number == 1:
-            self._attr_icon = "mdi:train-car"
-        else:
-            self._attr_icon = "mdi:train"
+        self._default_icon = "mdi:train-car" if train_number == 1 else "mdi:train"
+        self._attr_icon = self._default_icon
+
+    @property
+    def _service_index(self) -> int:
+        return self._train_number - 1
+
+    @property
+    def _log_label(self) -> str:
+        return f"Train {self._train_number}"
+
+    @property
+    def _include_train_number_attrs(self) -> bool:
+        return True
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator and detect platform changes."""
         if not self.coordinator.data:
-            _LOGGER.debug("Train %d: No coordinator data available", self._train_number)
+            _LOGGER.debug("%s: No coordinator data available", self._log_label)
             super()._handle_coordinator_update()
             return
 
         services = self.coordinator.data.get("services", [])
         _LOGGER.debug(
-            "Train %d: Processing update with %d services available",
-            self._train_number,
+            "%s: Processing update with %d services available",
+            self._log_label,
             len(services),
         )
 
         # Check if this train exists in the service list
         if len(services) >= self._train_number:
-            train = services[self._train_number - 1]
+            train = services[self._service_index]
             current_platform = train.get("platform") or ""
             current_service_id = train.get("service_id")
 
@@ -394,8 +404,8 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             if not current_service_id or (isinstance(current_service_id, str) and not current_service_id.strip()):
                 # Invalid service_id - reset tracking and skip platform change detection
                 _LOGGER.debug(
-                    "Train %d: Invalid service_id (empty/None), skipping platform tracking",
-                    self._train_number,
+                    "%s: Invalid service_id (empty/None), skipping platform tracking",
+                    self._log_label,
                 )
                 self._platform_changed = False
                 self._previous_platform = None
@@ -406,8 +416,8 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
                     if self._previous_platform is not None:
                         # Platform has changed!
                         _LOGGER.info(
-                            "Platform changed for train %d (service %s): %s -> %s",
-                            self._train_number,
+                            "Platform changed for %s (service %s): %s -> %s",
+                            self._log_label,
                             current_service_id,
                             self._previous_platform,
                             current_platform,
@@ -450,7 +460,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
         if len(services) < self._train_number:
             return "No service"
 
-        train = services[self._train_number - 1]
+        train = services[self._service_index]
 
         # Return departure status
         return self._get_departure_status(train)
@@ -463,14 +473,14 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             Icon string
         """
         if not self.coordinator.data:
-            return "mdi:train"
+            return self._default_icon
 
         services = self.coordinator.data.get("services", [])
 
         if len(services) < self._train_number:
-            return "mdi:train"
+            return self._default_icon
 
-        train = services[self._train_number - 1]
+        train = services[self._service_index]
 
         # Dynamic icon based on status
         if train.get("is_cancelled"):
@@ -482,7 +492,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
         elif delay_minutes > 0:
             return "mdi:train-variant"
 
-        return "mdi:train"
+        return self._default_icon
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -492,22 +502,22 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             Dictionary of attributes
         """
         if not self.coordinator.data:
-            return {
-                "train_number": self._train_number,
-                "status": "unavailable",
-            }
+            attrs: dict[str, Any] = {"status": "unavailable"}
+            if self._include_train_number_attrs:
+                attrs["train_number"] = self._train_number
+            return attrs
 
         services = self.coordinator.data.get("services", [])
 
         # If this train doesn't exist, return minimal attributes
         if len(services) < self._train_number:
-            return {
-                "train_number": self._train_number,
-                "total_trains": len(services),
-                "status": "no_service",
-            }
+            attrs = {"status": "no_service"}
+            if self._include_train_number_attrs:
+                attrs["train_number"] = self._train_number
+                attrs["total_trains"] = len(services)
+            return attrs
 
-        train = services[self._train_number - 1]
+        train = services[self._service_index]
 
         # Determine display time (expected or scheduled)
         expected = train.get("expected_departure")
@@ -574,7 +584,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
         return "On Time"
 
 
-class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
+class NextTrainSensor(TrainSensor):
     """Convenience sensor that mirrors train_1 (next departing train)."""
 
     def __init__(
@@ -588,207 +598,16 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             coordinator: Data coordinator
             entry: Config entry
         """
-        super().__init__(coordinator, entry)
-
+        super().__init__(coordinator, entry, train_number=1)
         self._attr_name = "Next Train"
         self._attr_unique_id = f"{entry.entry_id}_next_train"
+        self._default_icon = "mdi:train-car"
         self._attr_icon = "mdi:train-car"
 
-        # Platform change tracking (mirrors train_1)
-        self._previous_platform: str | None = None
-        self._platform_changed: bool = False
-        self._current_service_id: str | None = None
-
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator and detect platform changes."""
-        if not self.coordinator.data:
-            super()._handle_coordinator_update()
-            return
-
-        services = self.coordinator.data.get("services", [])
-
-        # Check if next train exists
-        if services:
-            train = services[0]
-            current_platform = train.get("platform") or ""
-            current_service_id = train.get("service_id")
-
-            # Validate service_id is not empty/None before tracking
-            # Empty or None service_id cannot be reliably used for platform change detection
-            if not current_service_id or (isinstance(current_service_id, str) and not current_service_id.strip()):
-                # Invalid service_id - reset tracking and skip platform change detection
-                _LOGGER.debug(
-                    "Next train: Invalid service_id (empty/None), skipping platform tracking",
-                )
-                self._platform_changed = False
-                self._previous_platform = None
-                self._current_service_id = None
-            elif self._current_service_id and current_service_id == self._current_service_id:
-                # Same service - check for platform change
-                if self._previous_platform != current_platform:
-                    if self._previous_platform is not None:
-                        # Platform has changed!
-                        _LOGGER.info(
-                            "Platform changed for next train (service %s): %s -> %s",
-                            current_service_id,
-                            self._previous_platform,
-                            current_platform,
-                        )
-                        self._platform_changed = True
-                        # Keep the previous platform stored (don't update it)
-                    else:
-                        # First time seeing this platform for this service
-                        self._previous_platform = current_platform
-                        self._platform_changed = False
-                else:
-                    # Platform hasn't changed
-                    self._platform_changed = False
-            else:
-                # Different service or first time - reset tracking
-                self._platform_changed = False
-                self._previous_platform = current_platform
-                self._current_service_id = current_service_id
-        else:
-            # Train doesn't exist anymore - reset tracking
-            self._previous_platform = None
-            self._platform_changed = False
-            self._current_service_id = None
-
-        super()._handle_coordinator_update()
+    @property
+    def _log_label(self) -> str:
+        return "Next train"
 
     @property
-    def native_value(self) -> str | None:
-        """Return the state of the sensor (mirrors train_1).
-
-        Returns:
-            Departure status: "On Time", "Delayed", "Cancelled", "Expected", or "No service"
-        """
-        if not self.coordinator.data:
-            return None
-
-        services = self.coordinator.data.get("services", [])
-
-        # If no trains at all, show "No service" instead of unavailable
-        if not services:
-            return "No service"
-
-        # Get first train (same as train_1)
-        train = services[0]
-
-        # Return departure status
-        return self._get_departure_status(train)
-
-    @property
-    def icon(self) -> str:
-        """Return icon based on train status.
-
-        Returns:
-            Icon string
-        """
-        if not self.coordinator.data:
-            return "mdi:train-car"
-
-        services = self.coordinator.data.get("services", [])
-
-        if not services:
-            return "mdi:train-car"
-
-        train = services[0]
-
-        # Dynamic icon based on status (same as train_1)
-        if train.get("is_cancelled"):
-            return "mdi:alert-circle"
-
-        delay_minutes = train.get("delay_minutes", 0)
-        if delay_minutes > 10:
-            return "mdi:clock-alert"
-        elif delay_minutes > 0:
-            return "mdi:train-variant"
-
-        return "mdi:train-car"
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional state attributes (mirrors train_1).
-
-        Returns:
-            Dictionary of attributes
-        """
-        if not self.coordinator.data:
-            return {
-                "status": "unavailable",
-            }
-
-        services = self.coordinator.data.get("services", [])
-
-        # If no trains, return appropriate status
-        if not services:
-            return {
-                "status": "no_service",
-            }
-
-        train = services[0]
-
-        # Determine display time (expected or scheduled)
-        expected = train.get("expected_departure")
-        scheduled = train.get("scheduled_departure")
-        departure_time = expected or scheduled
-
-        # Build comprehensive attributes (same as train_1)
-        attributes = {
-            "train_number": 1,
-            "total_trains": len(services),
-            "departure_time": departure_time,  # Moved from state to attribute
-            ATTR_SCHEDULED_DEPARTURE: train.get("scheduled_departure"),
-            ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
-            ATTR_PLATFORM: train.get("platform"),
-            "platform_changed": self._platform_changed,
-            "previous_platform": self._previous_platform if self._platform_changed else None,
-            ATTR_OPERATOR: train.get("operator"),
-            ATTR_SERVICE_ID: train.get("service_id"),
-            ATTR_STATUS: train.get("status"),
-            ATTR_DELAY_MINUTES: train.get("delay_minutes", 0),
-            ATTR_IS_CANCELLED: train.get("is_cancelled", False),
-            ATTR_CALLING_POINTS: train.get("calling_points", []),
-            ATTR_SCHEDULED_ARRIVAL: train.get("scheduled_arrival"),
-            ATTR_ESTIMATED_ARRIVAL: train.get("estimated_arrival"),
-            "last_updated": self.coordinator.data.get("last_updated"),
-        }
-
-        # Add cancellation reason if cancelled
-        if train.get("is_cancelled"):
-            attributes[ATTR_CANCELLATION_REASON] = train.get("cancellation_reason")
-            attributes[ATTR_DELAY_REASON] = None
-        # Add delay reason if delayed
-        elif train.get("delay_minutes", 0) > 0:
-            attributes[ATTR_DELAY_REASON] = train.get("delay_reason")
-            attributes[ATTR_CANCELLATION_REASON] = None
-        else:
-            attributes[ATTR_CANCELLATION_REASON] = None
-            attributes[ATTR_DELAY_REASON] = None
-
-        return attributes
-
-    def _get_departure_status(self, train: dict[str, Any]) -> str:
-        """Get human-readable departure status.
-
-        Args:
-            train: Train data dictionary
-
-        Returns:
-            Status string like "On Time", "Delayed", "Cancelled"
-        """
-        if train.get("is_cancelled"):
-            return "Cancelled"
-
-        delay_minutes = train.get("delay_minutes", 0)
-        if delay_minutes > 0:
-            return "Delayed"
-
-        expected = train.get("expected_departure")
-        scheduled = train.get("scheduled_departure")
-
-        if expected and expected != scheduled:
-            return "Expected"
-
-        return "On Time"
+    def _include_train_number_attrs(self) -> bool:
+        return False
