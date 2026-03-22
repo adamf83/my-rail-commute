@@ -194,7 +194,6 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._minor_delay_threshold: int | None = None
         self._departed_train_grace_period: int | None = None
         self._nearby_stations: list[tuple[float, dict]] | None = None
-        self._all_stations: list[dict] | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -304,15 +303,6 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._nearby_stations is None:
             self._nearby_stations = await self._find_nearby_stations()
 
-        # Load all stations (sorted by CRS) for the destination dropdown
-        if self._all_stations is None:
-            try:
-                raw = await self.hass.async_add_executor_job(_load_station_data)
-                self._all_stations = sorted(raw, key=lambda s: s["crs"])
-            except (OSError, ValueError):
-                _LOGGER.warning("Could not load station data for destination lookup")
-                self._all_stations = []
-
         if user_input is not None:
             try:
                 origin = user_input[CONF_ORIGIN].strip().upper()
@@ -350,9 +340,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     options=[
                         selector.SelectOptionDict(
                             value=s["crs"],
-                            label=f"{i + 1}. {s['name']} ({dist:.1f} mi)",
+                            label=f"{s['name']} ({dist:.1f} mi)",
                         )
-                        for i, (dist, s) in enumerate(self._nearby_stations)
+                        for dist, s in self._nearby_stations
                     ],
                     custom_value=True,
                     mode=selector.SelectSelectorMode.LIST,
@@ -361,27 +351,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         else:
             origin_field = str
 
-        if self._all_stations:
-            destination_field = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        selector.SelectOptionDict(
-                            value=s["crs"],
-                            label=f"{s['crs']} – {s['name']}",
-                        )
-                        for s in self._all_stations
-                    ],
-                    custom_value=True,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            )
-        else:
-            destination_field = str
-
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_ORIGIN): origin_field,
-                vol.Required(CONF_DESTINATION): destination_field,
+                vol.Required(CONF_DESTINATION): str,
             }
         )
 
