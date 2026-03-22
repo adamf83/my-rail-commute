@@ -130,3 +130,8 @@ ERROR_NETWORK: Final = "Network error occurred while contacting Rail API."
 
 # User Agent
 USER_AGENT: Final = f"{DOMAIN}/1.0.0"
+
+# Helpers (input_text) created by the integration for the card to store favourites/flagged trains
+HELPER_FAVOURITES_PREFIX: Final = "rail_commute_favourites_"
+HELPER_FLAGGED_PREFIX: Final = "rail_commute_flagged_"
+HELPER_MAX_LENGTH: Final = 1024

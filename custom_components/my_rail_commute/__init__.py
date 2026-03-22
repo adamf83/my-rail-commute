@@ -19,6 +19,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
+from .helpers import async_ensure_helpers
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +71,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Set up platforms
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+        # Create input_text helpers for the card to store favourites and flagged trains
+        await async_ensure_helpers(hass, entry)
 
         # Register update listener for options changes
         entry.async_on_unload(entry.add_update_listener(async_reload_entry))
