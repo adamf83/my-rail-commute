@@ -130,3 +130,25 @@ ERROR_NETWORK: Final = "Network error occurred while contacting Rail API."
 
 # User Agent
 USER_AGENT: Final = f"{DOMAIN}/1.0.0"
+
+# Helpers (input_text) created by the integration for the card to store favourites/flagged trains
+HELPER_FAVOURITES_PREFIX: Final = "rail_commute_favourites_"
+HELPER_FLAGGED_PREFIX: Final = "rail_commute_flagged_"
+HELPER_MAX_LENGTH: Final = 1024
+
+# Service names for flags/favourites management
+SERVICE_ADD_FAVOURITE: Final = "add_favourite"
+SERVICE_REMOVE_FAVOURITE: Final = "remove_favourite"
+SERVICE_FLAG_TRAIN: Final = "flag_train"
+SERVICE_UNFLAG_TRAIN: Final = "unflag_train"
+SERVICE_CLEAR_FAVOURITES: Final = "clear_favourites"
+SERVICE_CLEAR_FLAGGED: Final = "clear_flagged"
+
+# Storage for flags/favourites (persisted via HA Store)
+FLAGS_STORAGE_VERSION: Final = 1
+FLAGS_STORAGE_KEY_PREFIX: Final = "my_rail_commute_flags_"
+STORE_KEY_FAVOURITES: Final = "favourites"
+STORE_KEY_FLAGGED: Final = "flagged"
+
+# HA event fired when flags/favourites change (sensors listen to this)
+EVENT_FLAGS_UPDATED: Final = "my_rail_commute_flags_updated"

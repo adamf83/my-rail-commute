@@ -39,7 +39,7 @@ async def async_setup_entry(
         entry: Config entry
         async_add_entities: Callback to add entities
     """
-    coordinator: NationalRailDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: NationalRailDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
     # Create disruption sensor
     entities: list[BinarySensorEntity] = [
