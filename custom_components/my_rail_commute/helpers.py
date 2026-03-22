@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_component import DATA_INSTANCES
+from homeassistant.helpers.storage import Store
 from homeassistant.setup import async_setup_component
 from homeassistant.util import slugify
 
@@ -20,6 +23,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 _INPUT_TEXT_DOMAIN = "input_text"
+_STORAGE_VERSION = 1
 
 
 async def async_ensure_helpers(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -50,41 +54,61 @@ async def async_ensure_helpers(hass: HomeAssistant, entry: ConfigEntry) -> None:
         ),
     ]
 
-    # Ensure input_text is loaded. HA only calls its async_setup when helpers already
-    # exist; if none do yet, hass.data["input_text"] is never populated without this.
-    # async_setup_component is idempotent — safe to call even when already set up.
+    # Ensure input_text component is loaded. async_setup_component is idempotent.
     if not await async_setup_component(hass, _INPUT_TEXT_DOMAIN, {}):
         _LOGGER.warning(
             "Could not load input_text component; helpers will not be created automatically"
         )
         return
 
-    # The input_text storage collection is registered under hass.data["input_text"].
-    # Older HA versions stored it as {"storage_collection": ..., "yaml_collection": ...};
-    # newer versions (2024.x+) store the collection object directly.
-    it_data = hass.data.get(_INPUT_TEXT_DOMAIN)
-    if isinstance(it_data, dict):
-        storage_collection = it_data.get("storage_collection")
-    elif it_data is not None and hasattr(it_data, "async_create_item"):
-        storage_collection = it_data
-    else:
-        storage_collection = None
+    # Write new items to the Store so they persist across HA restarts.
+    # The input_text storage collection loads from this file on every startup.
+    store: Store[dict[str, Any]] = Store(hass, _STORAGE_VERSION, _INPUT_TEXT_DOMAIN)
+    data: dict[str, Any] = await store.async_load() or {"items": []}
+    existing_ids = {item["id"] for item in data.get("items", [])}
 
-    if storage_collection is None:
-        _LOGGER.warning(
-            "input_text storage collection not available; "
-            "helpers will not be created automatically"
+    new_items: list[tuple[str, dict[str, Any]]] = []
+    for entity_id_str, name, item_id in helpers_to_create:
+        if item_id not in existing_ids and not hass.states.get(entity_id_str):
+            new_items.append(
+                (
+                    entity_id_str,
+                    {
+                        "id": item_id,
+                        "name": name,
+                        "min": 0,
+                        "max": HELPER_MAX_LENGTH,
+                        "mode": "text",
+                    },
+                )
+            )
+
+    if not new_items:
+        _LOGGER.debug("All helpers already exist, nothing to create")
+        return
+
+    data.setdefault("items", []).extend(config for _, config in new_items)
+    await store.async_save(data)
+
+    # Also add entities to the live EntityComponent so they appear immediately
+    # in the current HA session without requiring a restart.
+    # EntityComponent stores itself in hass.data[DATA_INSTANCES][domain] on init.
+    component = hass.data.get(DATA_INSTANCES, {}).get(_INPUT_TEXT_DOMAIN)
+    if component is None:
+        _LOGGER.info(
+            "input_text EntityComponent not found; "
+            "helpers will be available after HA restart"
         )
         return
 
-    for entity_id, name, item_id in helpers_to_create:
-        if hass.states.get(entity_id):
-            _LOGGER.debug("Helper %s already exists, skipping", entity_id)
-            continue
+    # Import InputText here to avoid a hard dependency at module load time.
+    from homeassistant.components.input_text import InputText  # noqa: PLC0415
+
+    for entity_id_str, config in new_items:
         try:
-            await storage_collection.async_create_item(
-                {"id": item_id, "name": name, "max": HELPER_MAX_LENGTH, "mode": "text"}
-            )
-            _LOGGER.info("Created helper %s", entity_id)
+            entity = InputText.from_storage(config)
+            entity.entity_id = entity_id_str
+            await component.async_add_entities([entity])
+            _LOGGER.info("Created helper %s", entity_id_str)
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Could not create helper %s: %s", entity_id, err)
+            _LOGGER.warning("Could not create helper %s: %s", entity_id_str, err)
