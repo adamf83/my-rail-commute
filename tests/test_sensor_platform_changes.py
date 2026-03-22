@@ -87,7 +87,7 @@ async def test_train_sensor_no_platform_change_for_different_service(
         }
 
         # Get the coordinator and trigger a manual refresh
-        coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]["coordinator"]
+        coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]
         await coordinator.async_refresh()
         await hass.async_block_till_done()
 
