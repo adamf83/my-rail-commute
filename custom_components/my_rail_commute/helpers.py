@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -15,15 +16,157 @@ from .const import (
     CONF_COMMUTE_NAME,
     CONF_DESTINATION,
     CONF_ORIGIN,
+    EVENT_FLAGS_UPDATED,
+    FLAGS_STORAGE_KEY_PREFIX,
+    FLAGS_STORAGE_VERSION,
     HELPER_FAVOURITES_PREFIX,
     HELPER_FLAGGED_PREFIX,
     HELPER_MAX_LENGTH,
+    STORE_KEY_FAVOURITES,
+    STORE_KEY_FLAGGED,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 _INPUT_TEXT_DOMAIN = "input_text"
 _STORAGE_VERSION = 1
+
+
+class FlagsStore:
+    """Persistent storage for favourites and flagged trains.
+
+    Data is stored in HA's .storage directory as JSON and survives restarts.
+    Mutations fire EVENT_FLAGS_UPDATED so sensors can refresh.
+    """
+
+    def __init__(self, hass: HomeAssistant, base: str) -> None:
+        """Initialise the store.
+
+        Args:
+            hass: Home Assistant instance
+            base: Slugified commute name used as part of the storage key
+        """
+        self._hass = hass
+        self._base = base
+        self._store: Store[dict[str, Any]] = Store(
+            hass, FLAGS_STORAGE_VERSION, f"{FLAGS_STORAGE_KEY_PREFIX}{base}"
+        )
+        self._data: dict[str, Any] = {
+            STORE_KEY_FAVOURITES: [],
+            STORE_KEY_FLAGGED: [],
+        }
+
+    async def async_load(self) -> None:
+        """Load persisted data from disk into memory."""
+        stored = await self._store.async_load()
+        if stored:
+            self._data[STORE_KEY_FAVOURITES] = stored.get(STORE_KEY_FAVOURITES, [])
+            self._data[STORE_KEY_FLAGGED] = stored.get(STORE_KEY_FLAGGED, [])
+
+    def get_favourites(self) -> list[dict[str, Any]]:
+        """Return the current in-memory list of favourites."""
+        return list(self._data[STORE_KEY_FAVOURITES])
+
+    def get_flagged(self) -> list[dict[str, Any]]:
+        """Return the current in-memory list of flagged trains."""
+        return list(self._data[STORE_KEY_FLAGGED])
+
+    async def async_add_favourite(
+        self,
+        scheduled_departure: str,
+        operator: str | None = None,
+    ) -> None:
+        """Add a favourite by scheduled departure time (deduplicated).
+
+        Args:
+            scheduled_departure: Scheduled departure time string, e.g. "08:15"
+            operator: Optional operator name
+        """
+        favourites: list[dict[str, Any]] = self._data[STORE_KEY_FAVOURITES]
+        if any(f["scheduled_departure"] == scheduled_departure for f in favourites):
+            return
+        entry: dict[str, Any] = {
+            "scheduled_departure": scheduled_departure,
+            "added_at": datetime.now(UTC).isoformat(),
+        }
+        if operator:
+            entry["operator"] = operator
+        favourites.append(entry)
+        await self._async_save()
+
+    async def async_remove_favourite(self, scheduled_departure: str) -> None:
+        """Remove a favourite by scheduled departure time.
+
+        Args:
+            scheduled_departure: Scheduled departure time to remove
+        """
+        self._data[STORE_KEY_FAVOURITES] = [
+            f
+            for f in self._data[STORE_KEY_FAVOURITES]
+            if f["scheduled_departure"] != scheduled_departure
+        ]
+        await self._async_save()
+
+    async def async_flag_train(
+        self,
+        service_id: str,
+        scheduled_departure: str,
+        operator: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """Flag a train by service ID (deduplicated).
+
+        Args:
+            service_id: Unique service identifier from the API
+            scheduled_departure: Scheduled departure time string
+            operator: Optional operator name
+            reason: Optional reason for flagging (e.g. "delay", "cancellation")
+        """
+        flagged: list[dict[str, Any]] = self._data[STORE_KEY_FLAGGED]
+        if any(f["service_id"] == service_id for f in flagged):
+            return
+        entry: dict[str, Any] = {
+            "service_id": service_id,
+            "scheduled_departure": scheduled_departure,
+            "flagged_at": datetime.now(UTC).isoformat(),
+        }
+        if operator:
+            entry["operator"] = operator
+        if reason:
+            entry["reason"] = reason
+        flagged.append(entry)
+        await self._async_save()
+
+    async def async_unflag_train(self, service_id: str) -> None:
+        """Remove a flagged train by service ID.
+
+        Args:
+            service_id: Unique service identifier to remove
+        """
+        self._data[STORE_KEY_FLAGGED] = [
+            f
+            for f in self._data[STORE_KEY_FLAGGED]
+            if f["service_id"] != service_id
+        ]
+        await self._async_save()
+
+    async def async_clear_favourites(self) -> None:
+        """Remove all favourites."""
+        self._data[STORE_KEY_FAVOURITES] = []
+        await self._async_save()
+
+    async def async_clear_flagged(self) -> None:
+        """Remove all flagged trains."""
+        self._data[STORE_KEY_FLAGGED] = []
+        await self._async_save()
+
+    async def _async_save(self) -> None:
+        """Persist current data to disk and notify listeners."""
+        await self._store.async_save(self._data)
+        self._hass.bus.async_fire(
+            EVENT_FLAGS_UPDATED,
+            {"base": self._base},
+        )
 
 
 async def async_ensure_helpers(hass: HomeAssistant, entry: ConfigEntry) -> None:

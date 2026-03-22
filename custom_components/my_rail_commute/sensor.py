@@ -6,7 +6,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -39,6 +39,7 @@ from .const import (
     CONF_COMMUTE_NAME,
     CONF_NUM_SERVICES,
     DOMAIN,
+    EVENT_FLAGS_UPDATED,
     STATUS_CRITICAL,
     STATUS_MAJOR_DELAYS,
     STATUS_MINOR_DELAYS,
@@ -46,6 +47,7 @@ from .const import (
     STATUS_SEVERE_DISRUPTION,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
+from .helpers import FlagsStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +64,9 @@ async def async_setup_entry(
         entry: Config entry
         async_add_entities: Callback to add entities
     """
-    coordinator: NationalRailDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    entry_data: dict = hass.data[DOMAIN][entry.entry_id]
+    coordinator: NationalRailDataUpdateCoordinator = entry_data["coordinator"]
+    flags_store: FlagsStore = entry_data["flags_store"]
 
     # Get number of trains to track from configuration (data or options)
     config = {**entry.data, **entry.options}
@@ -70,9 +74,11 @@ async def async_setup_entry(
 
     # Create sensors
     entities: list[SensorEntity] = [
-        CommuteSummarySensor(coordinator, entry),
+        CommuteSummarySensor(coordinator, entry, flags_store),
         CommuteStatusSensor(coordinator, entry),
         NextTrainSensor(coordinator, entry),  # Mirrors train_1 for convenience
+        FavouritesSensor(coordinator, entry, flags_store),
+        FlaggedTrainsSensor(coordinator, entry, flags_store),
     ]
 
     # Create individual train sensors dynamically based on configuration
@@ -129,15 +135,18 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
         self,
         coordinator: NationalRailDataUpdateCoordinator,
         entry: ConfigEntry,
+        flags_store: FlagsStore,
     ) -> None:
         """Initialize the summary sensor.
 
         Args:
             coordinator: Data coordinator
             entry: Config entry
+            flags_store: Persistent storage for favourites and flagged trains
         """
         super().__init__(coordinator, entry)
 
+        self._flags_store = flags_store
         self._attr_name = "Summary"
         self._attr_unique_id = f"{entry.entry_id}_summary"
         self._attr_icon = "mdi:train"
@@ -167,22 +176,34 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
         data = self.coordinator.data
         services = data.get("services", [])
 
+        # Build lookup sets from flags store for efficient annotation
+        favourite_departures = {
+            f["scheduled_departure"] for f in self._flags_store.get_favourites()
+        }
+        flagged_service_ids = {
+            f["service_id"] for f in self._flags_store.get_flagged()
+        }
+
         # Build all_trains attribute with complete train data for custom cards
         all_trains = []
         for idx, service in enumerate(services, start=1):
+            sched_dep = service.get("scheduled_departure")
+            svc_id = service.get("service_id")
             train_data = {
                 "train_number": idx,
-                "scheduled_departure": service.get("scheduled_departure"),
+                "scheduled_departure": sched_dep,
                 "expected_departure": service.get("expected_departure"),
                 "platform": service.get("platform"),
                 "operator": service.get("operator"),
-                "service_id": service.get("service_id"),
+                "service_id": svc_id,
                 "status": service.get("status"),
                 "delay_minutes": service.get("delay_minutes", 0),
                 "is_cancelled": service.get("is_cancelled", False),
                 "calling_points": service.get("calling_points", []),
                 "estimated_arrival": service.get("estimated_arrival"),
                 "scheduled_arrival": service.get("scheduled_arrival"),
+                "is_favourite": sched_dep in favourite_departures,
+                "is_flagged": svc_id in flagged_service_ids if svc_id else False,
             }
 
             # Add optional fields if present
@@ -611,3 +632,116 @@ class NextTrainSensor(TrainSensor):
     @property
     def _include_train_number_attrs(self) -> bool:
         return False
+
+
+class _FlagsBaseSensor(NationalRailCommuteEntity, SensorEntity):
+    """Base class for sensors that expose persisted flags/favourites data.
+
+    Subscribes to EVENT_FLAGS_UPDATED so the entity refreshes immediately
+    whenever a service call modifies the flags store.
+    """
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+        flags_store: FlagsStore,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._flags_store = flags_store
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to flags update events when entity is added."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                EVENT_FLAGS_UPDATED,
+                self._handle_flags_updated,
+            )
+        )
+
+    def _handle_flags_updated(self, _event: Event) -> None:
+        """Refresh entity state when flags change."""
+        self.async_write_ha_state()
+
+
+class FavouritesSensor(_FlagsBaseSensor):
+    """Sensor exposing the list of saved favourite departure times.
+
+    State: count of saved favourites (integer).
+    Attributes: full list with scheduled_departure, operator, added_at.
+    """
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+        flags_store: FlagsStore,
+    ) -> None:
+        """Initialize the favourites sensor.
+
+        Args:
+            coordinator: Data coordinator
+            entry: Config entry
+            flags_store: Persistent storage for favourites
+        """
+        super().__init__(coordinator, entry, flags_store)
+        self._attr_name = "Favourites"
+        self._attr_unique_id = f"{entry.entry_id}_favourites"
+        self._attr_icon = "mdi:star"
+        self._attr_native_unit_of_measurement = None
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of saved favourites."""
+        return len(self._flags_store.get_favourites())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the list of saved favourites as attributes."""
+        favourites = self._flags_store.get_favourites()
+        return {
+            "favourites": favourites,
+            "count": len(favourites),
+        }
+
+
+class FlaggedTrainsSensor(_FlagsBaseSensor):
+    """Sensor exposing the list of flagged train services.
+
+    State: count of flagged trains (integer).
+    Attributes: full list with service_id, scheduled_departure, operator, reason, flagged_at.
+    """
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+        flags_store: FlagsStore,
+    ) -> None:
+        """Initialize the flagged trains sensor.
+
+        Args:
+            coordinator: Data coordinator
+            entry: Config entry
+            flags_store: Persistent storage for flagged trains
+        """
+        super().__init__(coordinator, entry, flags_store)
+        self._attr_name = "Flagged Trains"
+        self._attr_unique_id = f"{entry.entry_id}_flagged"
+        self._attr_icon = "mdi:flag"
+        self._attr_native_unit_of_measurement = None
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of flagged trains."""
+        return len(self._flags_store.get_flagged())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the list of flagged trains as attributes."""
+        flagged = self._flags_store.get_flagged()
+        return {
+            "flagged": flagged,
+            "count": len(flagged),
+        }

@@ -1,0 +1,113 @@
+add_favourite:
+  name: Add Favourite
+  description: Save a departure time as a favourite so it persists even after the train departs.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute (find it in Settings → Integrations).
+      required: true
+      selector:
+        text: {}
+    scheduled_departure:
+      name: Scheduled Departure
+      description: The scheduled departure time to save, e.g. "08:15".
+      required: true
+      selector:
+        text: {}
+    operator:
+      name: Operator
+      description: Optional train operator name, e.g. "GWR".
+      required: false
+      selector:
+        text: {}
+
+remove_favourite:
+  name: Remove Favourite
+  description: Remove a previously saved favourite departure time.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute.
+      required: true
+      selector:
+        text: {}
+    scheduled_departure:
+      name: Scheduled Departure
+      description: The scheduled departure time to remove, e.g. "08:15".
+      required: true
+      selector:
+        text: {}
+
+flag_train:
+  name: Flag Train
+  description: Flag a specific train service for later review. Persists after departure.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute.
+      required: true
+      selector:
+        text: {}
+    service_id:
+      name: Service ID
+      description: The unique service ID from the API (service_id attribute on the train sensor).
+      required: true
+      selector:
+        text: {}
+    scheduled_departure:
+      name: Scheduled Departure
+      description: The scheduled departure time of the service, e.g. "08:30".
+      required: true
+      selector:
+        text: {}
+    operator:
+      name: Operator
+      description: Optional train operator name.
+      required: false
+      selector:
+        text: {}
+    reason:
+      name: Reason
+      description: Optional reason for flagging, e.g. "delay" or "overcrowded".
+      required: false
+      selector:
+        text: {}
+
+unflag_train:
+  name: Unflag Train
+  description: Remove a flagged train from the flagged list.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute.
+      required: true
+      selector:
+        text: {}
+    service_id:
+      name: Service ID
+      description: The unique service ID of the train to unflag.
+      required: true
+      selector:
+        text: {}
+
+clear_favourites:
+  name: Clear Favourites
+  description: Remove all saved favourites for this commute.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute.
+      required: true
+      selector:
+        text: {}
+
+clear_flagged:
+  name: Clear Flagged Trains
+  description: Remove all flagged trains for this commute.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute.
+      required: true
+      selector:
+        text: {}
