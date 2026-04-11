@@ -1,0 +1,44 @@
+{
+  "GetStationBoardResult": {
+    "generatedAt": "2024-01-15T08:30:00",
+    "locationName": "East Croydon",
+    "crs": "ECR",
+    "filterLocationName": "London Bridge",
+    "filtercrs": "LBG",
+    "trainServices": {
+      "service": [
+        {
+          "std": "08:32",
+          "etd": "On time",
+          "platform": "3",
+          "operator": "Thameslink",
+          "serviceID": "service_ecr_lbg",
+          "destination": [
+            {
+              "locationName": "Cannon Street",
+              "crs": "CST"
+            }
+          ],
+          "subsequentCallingPoints": [
+            {
+              "callingPoint": [
+                {
+                  "locationName": "London Bridge",
+                  "crs": "LBG",
+                  "st": "08:45",
+                  "et": "On time"
+                },
+                {
+                  "locationName": "Cannon Street",
+                  "crs": "CST",
+                  "st": "08:52",
+                  "et": "On time"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
