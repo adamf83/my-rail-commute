@@ -378,14 +378,14 @@ class NationalRailAPI:
 
         try:
             data = await self._request(endpoint, params)
-            return self._parse_departure_board(data)
+            return self._parse_departure_board(data, destination_crs)
         except InvalidStationError:
             raise
         except NationalRailAPIError as err:
             _LOGGER.error("Failed to get departure board: %s", err)
             raise
 
-    def _parse_departure_board(self, data: dict[str, Any]) -> dict[str, Any]:
+    def _parse_departure_board(self, data: dict[str, Any], destination_crs: str | None = None) -> dict[str, Any]:
         """Parse departure board response.
 
         Args:
@@ -409,7 +409,7 @@ class NationalRailAPI:
 
         parsed_services = []
         for service in services_list:
-            parsed_service = self._parse_service(service)
+            parsed_service = self._parse_service(service, destination_crs)
             if parsed_service:
                 parsed_services.append(parsed_service)
 
@@ -421,7 +421,7 @@ class NationalRailAPI:
             "nrcc_messages": board.get("nrccMessages", []),
         }
 
-    def _parse_service(self, service: dict[str, Any]) -> dict[str, Any] | None:
+    def _parse_service(self, service: dict[str, Any], destination_crs: str | None = None) -> dict[str, Any] | None:
         """Parse a single train service.
 
         Args:
@@ -493,15 +493,22 @@ class NationalRailAPI:
                     cp.get("locationName", "") for cp in calling_point_list if cp
                 ]
 
-            # Arrival time (use last calling point or estimate)
+            # Arrival time: use configured destination stop, fall back to last calling point
             scheduled_arrival = None
             estimated_arrival = None
             if calling_points and isinstance(subsequent_points, list) and subsequent_points:
                 calling_point_list = subsequent_points[0].get("callingPoint", [])
                 if isinstance(calling_point_list, list) and calling_point_list:
-                    last_point = calling_point_list[-1]
-                    scheduled_arrival = last_point.get("st")
-                    estimated_arrival = last_point.get("et")
+                    dest_point = None
+                    if destination_crs:
+                        for cp in calling_point_list:
+                            if cp.get("crs", "").upper() == destination_crs.upper():
+                                dest_point = cp
+                                break
+                    if dest_point is None:
+                        dest_point = calling_point_list[-1]
+                    scheduled_arrival = dest_point.get("st")
+                    estimated_arrival = dest_point.get("et")
 
             return {
                 "scheduled_departure": std,

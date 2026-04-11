@@ -344,6 +344,53 @@ class TestParseService:
         assert result["status"] == STATUS_DELAYED
         assert result["delay_minutes"] == 15  # Crosses midnight
 
+    async def test_parse_service_uses_destination_not_terminus(self, api_client):
+        """Test that scheduled_arrival uses the configured destination, not the terminus."""
+        service_data = {
+            "std": "08:32",
+            "etd": "On time",
+            "platform": "3",
+            "operator": "Thameslink",
+            "serviceID": "service_ecr_lbg",
+            "destination": [{"locationName": "Cannon Street", "crs": "CST"}],
+            "subsequentCallingPoints": [
+                {
+                    "callingPoint": [
+                        {"locationName": "London Bridge", "crs": "LBG", "st": "08:45", "et": "On time"},
+                        {"locationName": "Cannon Street", "crs": "CST", "st": "08:52", "et": "On time"},
+                    ]
+                }
+            ],
+        }
+
+        result = api_client._parse_service(service_data, destination_crs="LBG")
+
+        assert result["scheduled_arrival"] == "08:45"
+        assert result["estimated_arrival"] == "On time"
+
+    async def test_parse_service_falls_back_to_last_point_when_no_destination_crs(self, api_client):
+        """Test that scheduled_arrival falls back to the last calling point when no destination_crs given."""
+        service_data = {
+            "std": "08:32",
+            "etd": "On time",
+            "platform": "3",
+            "operator": "Thameslink",
+            "serviceID": "service_ecr_cst",
+            "destination": [{"locationName": "Cannon Street", "crs": "CST"}],
+            "subsequentCallingPoints": [
+                {
+                    "callingPoint": [
+                        {"locationName": "London Bridge", "crs": "LBG", "st": "08:45", "et": "On time"},
+                        {"locationName": "Cannon Street", "crs": "CST", "st": "08:52", "et": "On time"},
+                    ]
+                }
+            ],
+        }
+
+        result = api_client._parse_service(service_data)
+
+        assert result["scheduled_arrival"] == "08:52"
+
     @pytest.mark.parametrize(
         ("std", "etd"),
         [
