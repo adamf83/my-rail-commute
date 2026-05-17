@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -13,18 +13,27 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
 
 from .const import (
+    ATTR_AVG_DELAY_7D,
+    ATTR_AVG_DELAY_TODAY,
+    ATTR_BEST_DAY,
     ATTR_CALLING_POINTS,
     ATTR_CANCELLATION_REASON,
     ATTR_CANCELLED_COUNT,
+    ATTR_CANCELLED_COUNT_TODAY,
     ATTR_DELAY_MINUTES,
     ATTR_DELAY_REASON,
     ATTR_DELAYED_COUNT,
+    ATTR_DELAYED_COUNT_TODAY,
     ATTR_DESTINATION,
     ATTR_DESTINATION_NAME,
     ATTR_ESTIMATED_ARRIVAL,
     ATTR_EXPECTED_DEPARTURE,
     ATTR_IS_CANCELLED,
     ATTR_ON_TIME_COUNT,
+    ATTR_ON_TIME_COUNT_TODAY,
+    ATTR_ON_TIME_PCT_30D,
+    ATTR_ON_TIME_PCT_7D,
+    ATTR_ON_TIME_PCT_TODAY,
     ATTR_OPERATOR,
     ATTR_ORIGIN,
     ATTR_ORIGIN_NAME,
@@ -35,7 +44,9 @@ from .const import (
     ATTR_SERVICES_TRACKED,
     ATTR_STATUS,
     ATTR_TIME_WINDOW,
+    ATTR_TOTAL_OBSERVATIONS_TODAY,
     ATTR_TOTAL_SERVICES,
+    ATTR_WORST_DAY,
     CONF_COMMUTE_NAME,
     CONF_NUM_SERVICES,
     DOMAIN,
@@ -78,6 +89,10 @@ async def async_setup_entry(
     # Create individual train sensors dynamically based on configuration
     for train_number in range(1, num_trains + 1):
         entities.append(TrainSensor(coordinator, entry, train_number))
+
+    # Historical performance sensors
+    entities.append(HistoricalReliabilitySensor(coordinator, entry))
+    entities.append(HistoricalDelaysSensor(coordinator, entry))
 
     _LOGGER.debug(
         "Setting up %d sensor entities for %s -> %s",
@@ -792,3 +807,87 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             return "Expected"
 
         return "On Time"
+
+
+class HistoricalReliabilitySensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor exposing on-time percentage over rolling windows."""
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Historical Reliability"
+        self._attr_unique_id = f"{entry.entry_id}_historical_reliability"
+        self._attr_icon = "mdi:chart-line"
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> float | None:
+        if self.coordinator.stats_store is None:
+            return None
+        return self.coordinator.stats_store.get_rolling_stats(7)["on_time_pct"]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        store = self.coordinator.stats_store
+        if store is None:
+            return {}
+
+        today = store.get_today_stats()
+        rolling_7 = store.get_rolling_stats(7)
+        rolling_30 = store.get_rolling_stats(30)
+
+        return {
+            ATTR_ON_TIME_PCT_TODAY: today.get("on_time_pct"),
+            ATTR_ON_TIME_PCT_7D: rolling_7["on_time_pct"],
+            ATTR_ON_TIME_PCT_30D: rolling_30["on_time_pct"],
+            ATTR_ON_TIME_COUNT_TODAY: today.get("on_time_count", 0),
+            ATTR_DELAYED_COUNT_TODAY: today.get("delayed_count", 0),
+            ATTR_CANCELLED_COUNT_TODAY: today.get("cancelled_count", 0),
+            ATTR_TOTAL_OBSERVATIONS_TODAY: today.get("total_observations", 0),
+            "days_with_data_7day": rolling_7["days_with_data"],
+            "days_with_data_30day": rolling_30["days_with_data"],
+        }
+
+
+class HistoricalDelaysSensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor exposing average delay statistics over rolling windows."""
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Historical Delays"
+        self._attr_unique_id = f"{entry.entry_id}_historical_delays"
+        self._attr_icon = "mdi:clock-alert-outline"
+        self._attr_native_unit_of_measurement = "min"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> float | None:
+        if self.coordinator.stats_store is None:
+            return None
+        return self.coordinator.stats_store.get_rolling_stats(7)["avg_delay_minutes"]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        store = self.coordinator.stats_store
+        if store is None:
+            return {}
+
+        today = store.get_today_stats()
+        rolling_7 = store.get_rolling_stats(7)
+        best_worst = store.get_best_and_worst_days(30)
+
+        return {
+            ATTR_AVG_DELAY_TODAY: today.get("avg_delay_minutes"),
+            ATTR_AVG_DELAY_7D: rolling_7["avg_delay_minutes"],
+            ATTR_WORST_DAY: best_worst["worst_day"],
+            ATTR_BEST_DAY: best_worst["best_day"],
+            "days_with_data_7day": rolling_7["days_with_data"],
+        }

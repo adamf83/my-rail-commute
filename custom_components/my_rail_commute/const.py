@@ -130,3 +130,20 @@ ERROR_NETWORK: Final = "Network error occurred while contacting Rail API."
 
 # User Agent
 USER_AGENT: Final = f"{DOMAIN}/1.0.0"
+
+# Historical statistics storage
+STORAGE_VERSION: Final = 1
+STATS_RETENTION_DAYS: Final = 90
+
+# Attribute names for historical sensors
+ATTR_ON_TIME_PCT_TODAY: Final = "on_time_pct_today"
+ATTR_ON_TIME_PCT_7D: Final = "on_time_pct_7day"
+ATTR_ON_TIME_PCT_30D: Final = "on_time_pct_30day"
+ATTR_AVG_DELAY_TODAY: Final = "avg_delay_today"
+ATTR_AVG_DELAY_7D: Final = "avg_delay_7day"
+ATTR_WORST_DAY: Final = "worst_day"
+ATTR_BEST_DAY: Final = "best_day"
+ATTR_TOTAL_OBSERVATIONS_TODAY: Final = "total_observations_today"
+ATTR_ON_TIME_COUNT_TODAY: Final = "on_time_count_today"
+ATTR_DELAYED_COUNT_TODAY: Final = "delayed_count_today"
+ATTR_CANCELLED_COUNT_TODAY: Final = "cancelled_count_today"
