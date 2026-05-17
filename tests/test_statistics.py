@@ -252,3 +252,20 @@ async def test_on_time_pct_computed_correctly():
     day = store._data[today]
     assert day["on_time_pct"] == 75.0  # 3/4 * 100
     assert day["avg_delay_minutes"] == 5.0  # 1 delayed service with 5 min delay
+
+
+def test_get_raw_data_returns_copy():
+    """get_raw_data returns all stored daily records as a copy."""
+    store = _make_store()
+    store._data = {"2026-05-17": {"on_time_count": 5}}
+    result = store.get_raw_data()
+    assert result == {"2026-05-17": {"on_time_count": 5}}
+    # Mutating the result must not affect internal state
+    result["2026-05-18"] = {}
+    assert "2026-05-18" not in store._data
+
+
+def test_get_raw_data_empty():
+    """get_raw_data returns empty dict when no data has been recorded."""
+    store = _make_store()
+    assert store.get_raw_data() == {}

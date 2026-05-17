@@ -111,3 +111,14 @@ clear_flagged:
       required: true
       selector:
         text: {}
+
+get_historical_raw_data:
+  name: Get Historical Raw Data
+  description: Retrieve the full raw historical daily statistics for a commute. Returns up to 90 days of per-day on-time and delay data.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute (find it in Settings → Integrations).
+      required: true
+      selector:
+        text: {}
