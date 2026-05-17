@@ -341,7 +341,7 @@ class NationalRailAPI:
     async def get_departure_board(
         self,
         origin_crs: str,
-        destination_crs: str,
+        destination_crs: str | None = None,
         time_window: int = 60,
         num_rows: int = 10,
     ) -> dict[str, Any]:
@@ -349,7 +349,7 @@ class NationalRailAPI:
 
         Args:
             origin_crs: Origin station CRS code (3 letters)
-            destination_crs: Destination station CRS code (3 letters)
+            destination_crs: Destination station CRS code (3 letters), or None for all departures
             time_window: Time window in minutes
             num_rows: Number of services to retrieve
 
@@ -363,18 +363,19 @@ class NationalRailAPI:
         _LOGGER.debug(
             "Fetching departure board: %s -> %s (window: %s mins, rows: %s)",
             origin_crs,
-            destination_crs,
+            destination_crs or "ALL",
             time_window,
             num_rows,
         )
 
         # Use path parameters for the CRS code and query parameters for filters
         endpoint = f"GetDepBoardWithDetails/{origin_crs.upper()}"
-        params = {
-            "filterCrs": destination_crs.upper(),
+        params: dict[str, Any] = {
             "timeWindow": time_window,
             "numRows": num_rows,
         }
+        if destination_crs:
+            params["filterCrs"] = destination_crs.upper()
 
         try:
             data = await self._request(endpoint, params)
@@ -398,7 +399,7 @@ class NationalRailAPI:
         board = data.get("GetStationBoardResult", data)
 
         location_name = board.get("locationName", "Unknown")
-        destination_name = board.get("filterLocationName", "Unknown")
+        destination_name = board.get("filterLocationName") or None
 
         # Extract services
         train_services = board.get("trainServices", {})

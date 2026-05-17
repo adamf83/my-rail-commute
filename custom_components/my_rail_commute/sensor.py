@@ -99,7 +99,7 @@ async def async_setup_entry(
         "Setting up %d sensor entities for %s -> %s",
         len(entities),
         coordinator.origin,
-        coordinator.destination,
+        coordinator.destination or "ALL",
     )
 
     async_add_entities(entities)
@@ -129,8 +129,9 @@ class NationalRailCommuteEntity(CoordinatorEntity[NationalRailDataUpdateCoordina
         origin = coordinator.origin
         destination = coordinator.destination
 
+        device_id = f"{origin}_{destination}" if destination else f"{origin}_all_departures"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{origin}_{destination}")},
+            identifiers={(DOMAIN, device_id)},
             name=commute_name,
             manufacturer="National Rail",
             model="Live Departure Board",
@@ -199,6 +200,7 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
                 "calling_points": service.get("calling_points", []),
                 "estimated_arrival": service.get("estimated_arrival"),
                 "scheduled_arrival": service.get("scheduled_arrival"),
+                "destination": service.get("destination"),
             }
 
             # Add optional fields if present
@@ -209,7 +211,7 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
 
             all_trains.append(train_data)
 
-        return {
+        attrs: dict[str, Any] = {
             ATTR_ORIGIN: data.get("origin"),
             ATTR_ORIGIN_NAME: data.get("origin_name"),
             ATTR_DESTINATION: data.get("destination"),
@@ -225,6 +227,12 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
             "next_update": data.get("next_update"),
             "all_trains": all_trains,  # Complete train data for custom cards
         }
+
+        if data.get("multi_destination"):
+            attrs["multi_destination"] = True
+            attrs["services_by_destination"] = data.get("services_by_destination", {})
+
+        return attrs
 
 
 class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):

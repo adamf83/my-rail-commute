@@ -10,10 +10,11 @@
       },
       "stations": {
         "title": "Configure Route",
-        "description": "Select your origin station from the nearby stations list, or type a 3-letter CRS code directly (e.g., PAD for Paddington). Enter the destination station CRS code.",
+        "description": "Select your origin station from the nearby stations list, or type a 3-letter CRS code directly (e.g., PAD for Paddington). Enable 'All Departures' to show every train from this station, or enter a destination CRS code to track a specific route.",
         "data": {
           "origin": "Origin Station",
-          "destination": "Destination Station (CRS Code)"
+          "all_departures": "Show All Departures (no destination filter)",
+          "destination": "Destination Station (CRS Code) — leave blank if 'All Departures' is enabled"
         }
       },
       "settings": {
