@@ -19,6 +19,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
+from .statistics import CommuteStatisticsStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             api,
             config,
         )
+
+        # Set up historical statistics store
+        stats_store = CommuteStatisticsStore(hass, entry.entry_id)
+        await stats_store.async_load()
+        coordinator.stats_store = stats_store
 
         # Fetch initial data
         _LOGGER.debug("Fetching initial data for %s -> %s", config[CONF_ORIGIN], config[CONF_DESTINATION])

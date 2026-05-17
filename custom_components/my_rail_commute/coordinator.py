@@ -126,6 +126,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         self.origin_name: str | None = None
         self.destination_name: str | None = None
 
+        # Historical stats recorder — attached externally by async_setup_entry
+        self.stats_store: Any | None = None
+
         # Initialize with off-peak interval
         update_interval = self._get_update_interval()
 
@@ -203,6 +206,10 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
             # Parse and enrich data
             parsed_data = self._parse_data(data)
+
+            # Record observation in historical stats store
+            if self.stats_store is not None:
+                await self.stats_store.async_record_observation(parsed_data)
 
             # Reset failed update counter on success
             self._failed_updates = 0
