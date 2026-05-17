@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import logging
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -20,6 +23,8 @@ from .const import (
 )
 from .coordinator import NationalRailDataUpdateCoordinator
 from .statistics import CommuteStatisticsStore
+
+SERVICE_GET_HISTORICAL_RAW_DATA = "get_historical_raw_data"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +85,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Register update listener for options changes
         entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
+        # Register domain-wide service (only once across all entries)
+        if not hass.services.has_service(DOMAIN, SERVICE_GET_HISTORICAL_RAW_DATA):
+            async def _handle_get_historical_raw_data(call: ServiceCall) -> dict:
+                entry_id = call.data["entry_id"]
+                if entry_id not in hass.data.get(DOMAIN, {}):
+                    raise ServiceValidationError(
+                        f"No commute found with entry_id: {entry_id}"
+                    )
+                coordinator = hass.data[DOMAIN][entry_id]
+                return {"days": coordinator.stats_store.get_raw_data()}
+
+            hass.services.async_register(
+                DOMAIN,
+                SERVICE_GET_HISTORICAL_RAW_DATA,
+                _handle_get_historical_raw_data,
+                schema=vol.Schema({vol.Required("entry_id"): cv.string}),
+                supports_response=SupportsResponse.ONLY,
+            )
+
         _LOGGER.debug("My Rail Commute integration setup complete")
 
         return True
@@ -108,6 +132,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.api.close()
 
         hass.data[DOMAIN].pop(entry.entry_id)
+
+        # Remove domain-wide service when the last entry is unloaded
+        if not hass.data[DOMAIN]:
+            hass.services.async_remove(DOMAIN, SERVICE_GET_HISTORICAL_RAW_DATA)
 
     return unload_ok
 

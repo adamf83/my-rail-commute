@@ -143,6 +143,10 @@ class CommuteStatisticsStore:
             })
         return result
 
+    def get_raw_data(self) -> dict[str, Any]:
+        """Return a copy of all stored daily stats records."""
+        return dict(self._data)
+
     def _prune_old_entries(self) -> None:
         """Remove entries older than STATS_RETENTION_DAYS."""
         cutoff = (dt_util.now().date() - timedelta(days=STATS_RETENTION_DAYS)).isoformat()
