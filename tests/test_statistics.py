@@ -99,7 +99,7 @@ async def test_record_same_day_accumulates():
     assert day["on_time_count"] == 3
     assert day["delayed_count"] == 1
     assert day["cancelled_count"] == 1
-    assert day["total_observations"] == 6
+    assert day["total_observations"] == 5
 
 
 @pytest.mark.asyncio
