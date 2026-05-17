@@ -71,7 +71,7 @@ async def test_record_new_day():
 
     today = date.today().isoformat()
     with patch("custom_components.my_rail_commute.statistics.dt_util") as mock_dt:
-        mock_dt.now.return_value.date.return_value.isoformat.return_value = today
+        mock_dt.now.return_value.date.return_value = date.fromisoformat(today)
         await store.async_record_observation(_parsed_data(on_time=2, delayed=1, cancelled=0))
 
     assert today in store._data
@@ -91,7 +91,7 @@ async def test_record_same_day_accumulates():
     today = "2026-05-17"
 
     with patch("custom_components.my_rail_commute.statistics.dt_util") as mock_dt:
-        mock_dt.now.return_value.date.return_value.isoformat.return_value = today
+        mock_dt.now.return_value.date.return_value = date.fromisoformat(today)
         await store.async_record_observation(_parsed_data(on_time=2, delayed=1, cancelled=0))
         await store.async_record_observation(_parsed_data(on_time=1, delayed=0, cancelled=1))
 
@@ -110,7 +110,7 @@ async def test_record_zero_services_skipped():
     today = "2026-05-17"
 
     with patch("custom_components.my_rail_commute.statistics.dt_util") as mock_dt:
-        mock_dt.now.return_value.date.return_value.isoformat.return_value = today
+        mock_dt.now.return_value.date.return_value = date.fromisoformat(today)
         await store.async_record_observation({"services_tracked": 0, "on_time_count": 0,
                                                "delayed_count": 0, "cancelled_count": 0,
                                                "services": []})
@@ -246,7 +246,7 @@ async def test_on_time_pct_computed_correctly():
     today = "2026-05-17"
 
     with patch("custom_components.my_rail_commute.statistics.dt_util") as mock_dt:
-        mock_dt.now.return_value.date.return_value.isoformat.return_value = today
+        mock_dt.now.return_value.date.return_value = date.fromisoformat(today)
         await store.async_record_observation(_parsed_data(on_time=3, delayed=1, cancelled=0))
 
     day = store._data[today]
