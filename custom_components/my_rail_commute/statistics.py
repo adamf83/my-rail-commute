@@ -128,6 +128,21 @@ class CommuteStatisticsStore:
             },
         }
 
+    def get_daily_breakdown(self, days: int = 30) -> list[dict[str, Any]]:
+        """Return per-day stats for last N calendar days, oldest first."""
+        today = dt_util.now().date()
+        result = []
+        for i in range(days - 1, -1, -1):
+            date_str = (today - timedelta(days=i)).isoformat()
+            day = self._data.get(date_str)
+            result.append({
+                "date": date_str,
+                "on_time_pct": day.get("on_time_pct") if day else None,
+                "avg_delay_minutes": day.get("avg_delay_minutes") if day else None,
+                "total_observations": day.get("total_observations", 0) if day else 0,
+            })
+        return result
+
     def _prune_old_entries(self) -> None:
         """Remove entries older than STATS_RETENTION_DAYS."""
         cutoff = (dt_util.now().date() - timedelta(days=STATS_RETENTION_DAYS)).isoformat()

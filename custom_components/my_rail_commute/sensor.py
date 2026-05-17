@@ -16,6 +16,7 @@ from .const import (
     ATTR_AVG_DELAY_7D,
     ATTR_AVG_DELAY_TODAY,
     ATTR_BEST_DAY,
+    ATTR_DAILY_BREAKDOWN,
     ATTR_CALLING_POINTS,
     ATTR_CANCELLATION_REASON,
     ATTR_CANCELLED_COUNT,
@@ -850,6 +851,7 @@ class HistoricalReliabilitySensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_TOTAL_OBSERVATIONS_TODAY: today.get("total_observations", 0),
             "days_with_data_7day": rolling_7["days_with_data"],
             "days_with_data_30day": rolling_30["days_with_data"],
+            ATTR_DAILY_BREAKDOWN: store.get_daily_breakdown(30),
         }
 
 
