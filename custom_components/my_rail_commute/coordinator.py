@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import NationalRailAPI, NationalRailAPIError
 from .const import (
+    CONF_ALL_DEPARTURES,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
     CONF_DISRUPTION_MULTIPLE_COUNT,
@@ -75,7 +76,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Get configuration
         self.origin = config[CONF_ORIGIN]
-        self.destination = config[CONF_DESTINATION]
+        self.destination = config.get(CONF_DESTINATION)  # None when all_departures=True
+        self.all_departures = config.get(CONF_ALL_DEPARTURES, False)
         self.time_window = int(config[CONF_TIME_WINDOW])
         self.num_services = int(config[CONF_NUM_SERVICES])
         self.night_updates_enabled = config.get(CONF_NIGHT_UPDATES, False)
@@ -175,7 +177,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         Raises:
             UpdateFailed: If update fails
         """
-        _LOGGER.debug("Starting data update for %s -> %s", self.origin, self.destination)
+        _LOGGER.debug(
+            "Starting data update for %s -> %s",
+            self.origin,
+            self.destination or "ALL",
+        )
 
         # Update interval may have changed (e.g., switching between peak/off-peak/night)
         # Use async lock to prevent race conditions with concurrent updates
@@ -189,15 +195,18 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.debug(
                 "Fetching departure data for %s -> %s",
                 self.origin,
-                self.destination,
+                self.destination or "ALL",
             )
+
+            # When showing all departures, fetch enough rows to populate multiple destinations
+            num_rows = max(self.num_services, 20) if self.all_departures else self.num_services
 
             # Fetch departure board
             data = await self.api.get_departure_board(
                 self.origin,
-                self.destination,
-                self.time_window,
-                self.num_services,
+                destination_crs=self.destination,
+                time_window=self.time_window,
+                num_rows=num_rows,
             )
 
             # Store station names
@@ -334,6 +343,38 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         return filtered_services
 
+    def _build_services_by_destination(self, services: list[dict[str, Any]]) -> dict[str, Any]:
+        """Group services by their destination and compute per-destination status.
+
+        Args:
+            services: Flat list of service data
+
+        Returns:
+            Dict keyed by destination name, each entry containing services + status counts
+        """
+        groups: dict[str, Any] = {}
+        for svc in services:
+            dest = svc.get("destination") or "Unknown"
+            if dest not in groups:
+                groups[dest] = {
+                    "services": [],
+                    "on_time_count": 0,
+                    "delayed_count": 0,
+                    "cancelled_count": 0,
+                }
+            groups[dest]["services"].append(svc)
+            if svc.get("is_cancelled"):
+                groups[dest]["cancelled_count"] += 1
+            elif svc.get("status") == STATUS_DELAYED:
+                groups[dest]["delayed_count"] += 1
+            else:
+                groups[dest]["on_time_count"] += 1
+
+        for dest_data in groups.values():
+            dest_data["status"] = self._calculate_overall_status(dest_data["services"])
+
+        return groups
+
     def _parse_data(self, data: dict[str, Any]) -> dict[str, Any]:
         """Parse and enrich API data.
 
@@ -369,7 +410,10 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         delay_info = self._collect_delay_info(services)
 
         # Build summary
-        summary = self._build_summary(on_time_count, delayed_count, cancelled_count)
+        if self.all_departures:
+            summary = self._build_all_departures_summary(len(services), on_time_count, delayed_count, cancelled_count)
+        else:
+            summary = self._build_summary(on_time_count, delayed_count, cancelled_count)
 
         # Get next train (first non-cancelled service)
         next_train = None
@@ -378,11 +422,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 next_train = service
                 break
 
-        return {
+        result: dict[str, Any] = {
             "origin": self.origin,
             "origin_name": self.origin_name or self.origin,
             "destination": self.destination,
-            "destination_name": self.destination_name or self.destination,
+            "destination_name": self.destination_name,
             "time_window": self.time_window,
             "services_tracked": len(services),
             "total_services_found": len(data.get("services", [])),
@@ -395,10 +439,16 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "max_delay_minutes": delay_info["max_delay_minutes"],
             "disruption_reasons": delay_info["disruption_reasons"],
             "summary": summary,
+            "multi_destination": self.all_departures,
             "last_updated": dt_util.now().isoformat(),
             "next_update": (dt_util.now() + self.update_interval).isoformat(),
             "nrcc_messages": data.get("nrcc_messages", []),
         }
+
+        if self.all_departures:
+            result["services_by_destination"] = self._build_services_by_destination(services)
+
+        return result
 
     def _collect_delay_info(self, services: list[dict[str, Any]]) -> dict[str, Any]:
         """Collect delay information for display attributes.
@@ -520,3 +570,31 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         # All on time
         return f"{on_time_count} train{'s' if on_time_count != 1 else ''} on time"
+
+    def _build_all_departures_summary(
+        self, total: int, on_time_count: int, delayed_count: int, cancelled_count: int
+    ) -> str:
+        """Build summary text for all-departures mode.
+
+        Args:
+            total: Total number of services
+            on_time_count: Number of on-time services
+            delayed_count: Number of delayed services
+            cancelled_count: Number of cancelled services
+
+        Returns:
+            Summary string for all departures from this origin
+        """
+        if total == 0:
+            return f"No departures from {self.origin_name or self.origin}"
+
+        issues = []
+        if cancelled_count:
+            issues.append(f"{cancelled_count} cancelled")
+        if delayed_count:
+            issues.append(f"{delayed_count} delayed")
+
+        if issues:
+            return f"{total} departure{'s' if total != 1 else ''} from {self.origin_name or self.origin} — {', '.join(issues)}"
+
+        return f"{total} departure{'s' if total != 1 else ''} from {self.origin_name or self.origin}"

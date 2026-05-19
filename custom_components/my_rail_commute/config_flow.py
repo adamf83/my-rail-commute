@@ -24,6 +24,7 @@ from .api import (
 )
 from .const import (
     CONF_ADD_RETURN_JOURNEY,
+    CONF_ALL_DEPARTURES,
     CONF_COMMUTE_NAME,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
@@ -185,6 +186,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._destination: str | None = None
         self._origin_name: str | None = None
         self._destination_name: str | None = None
+        self._all_departures: bool = False
         self._commute_name: str | None = None
         self._time_window: int | None = None
         self._num_services: int | None = None
@@ -306,22 +308,43 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 origin = user_input[CONF_ORIGIN].strip().upper()
-                destination = user_input[CONF_DESTINATION]
+                all_departures = bool(user_input.get(CONF_ALL_DEPARTURES, False))
 
-                # Validate stations
-                station_info = await validate_stations(
-                    self.hass, self._api_key, origin, destination
-                )
+                if all_departures:
+                    # Validate only the origin station
+                    session = async_get_clientsession(self.hass)
+                    api = NationalRailAPI(self._api_key, session)
+                    origin_name = await api.validate_station(origin)
+                    if not origin_name:
+                        raise InvalidStationError("Could not validate origin station")
 
-                self._origin = origin
-                self._destination = destination.strip().upper()
-                self._origin_name = station_info["origin_name"]
-                self._destination_name = station_info["destination_name"]
+                    self._origin = origin
+                    self._destination = None
+                    self._origin_name = origin_name
+                    self._destination_name = None
+                    self._all_departures = True
+                else:
+                    destination = user_input.get(CONF_DESTINATION, "").strip()
+                    if not destination:
+                        errors[CONF_DESTINATION] = "required"
+                        raise ValueError("destination_required")
+
+                    # Validate both stations (destination passed as-is, matching original behaviour)
+                    station_info = await validate_stations(
+                        self.hass, self._api_key, origin, destination
+                    )
+
+                    self._origin = origin
+                    self._destination = destination.upper()  # normalise after validation
+                    self._origin_name = station_info["origin_name"]
+                    self._destination_name = station_info["destination_name"]
+                    self._all_departures = False
 
                 return await self.async_step_settings()
 
-            except ValueError:
-                errors["base"] = "same_station"
+            except ValueError as err:
+                if "destination_required" not in str(err):
+                    errors["base"] = "same_station"
             except InvalidStationError:
                 errors["base"] = "invalid_station"
             except AuthenticationError:
@@ -354,7 +377,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_ORIGIN): origin_field,
-                vol.Required(CONF_DESTINATION): str,
+                vol.Optional(CONF_ALL_DEPARTURES, default=False): selector.BooleanSelector(),
+                vol.Optional(CONF_DESTINATION): str,
             }
         )
 
@@ -391,10 +415,11 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 # Store settings in instance variables
-                self._commute_name = user_input.get(
-                    CONF_COMMUTE_NAME,
-                    f"{self._origin_name} to {self._destination_name}",
-                )
+                if self._all_departures:
+                    default_name = f"Departures from {self._origin_name}"
+                else:
+                    default_name = f"{self._origin_name} to {self._destination_name}"
+                self._commute_name = user_input.get(CONF_COMMUTE_NAME, default_name)
                 self._time_window = user_input[CONF_TIME_WINDOW]
                 self._num_services = user_input[CONF_NUM_SERVICES]
                 self._night_updates = user_input[CONF_NIGHT_UPDATES]
@@ -405,16 +430,25 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
                 )
 
-                # Set unique ID based on route
-                await self.async_set_unique_id(
-                    f"{self._origin}_{self._destination}"
-                )
+                # Set unique ID based on route (all-departures gets a distinct suffix)
+                if self._all_departures:
+                    unique_id = f"{self._origin}_all_departures"
+                else:
+                    unique_id = f"{self._origin}_{self._destination}"
+                await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
+
+                # Skip return-journey step when showing all departures
+                if self._all_departures:
+                    return self._create_entry()
 
                 return await self.async_step_return_journey()
 
         # Default commute name
-        default_name = f"{self._origin_name} to {self._destination_name}"
+        if self._all_departures:
+            default_name = f"Departures from {self._origin_name}"
+        else:
+            default_name = f"{self._origin_name} to {self._destination_name}"
 
         data_schema = vol.Schema(
             {
@@ -506,7 +540,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "origin": self._origin_name,
-                "destination": self._destination_name,
+                "destination": self._destination_name or "All destinations",
             },
         )
 
@@ -591,22 +625,22 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def _create_entry(self) -> FlowResult:
         """Create the config entry using stored instance variables."""
-        return self.async_create_entry(
-            title=self._commute_name,
-            data={
-                CONF_API_KEY: self._api_key,
-                CONF_ORIGIN: self._origin,
-                CONF_DESTINATION: self._destination,
-                CONF_COMMUTE_NAME: self._commute_name,
-                CONF_TIME_WINDOW: self._time_window,
-                CONF_NUM_SERVICES: self._num_services,
-                CONF_NIGHT_UPDATES: self._night_updates,
-                CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
-                CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
-                CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
-                CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
-            },
-        )
+        data: dict[str, Any] = {
+            CONF_API_KEY: self._api_key,
+            CONF_ORIGIN: self._origin,
+            CONF_ALL_DEPARTURES: self._all_departures,
+            CONF_COMMUTE_NAME: self._commute_name,
+            CONF_TIME_WINDOW: self._time_window,
+            CONF_NUM_SERVICES: self._num_services,
+            CONF_NIGHT_UPDATES: self._night_updates,
+            CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
+            CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
+            CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
+            CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
+        }
+        if self._destination:
+            data[CONF_DESTINATION] = self._destination
+        return self.async_create_entry(title=self._commute_name, data=data)
 
     @staticmethod
     @callback
