@@ -324,18 +324,18 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._destination_name = None
                     self._all_departures = True
                 else:
-                    destination = user_input.get(CONF_DESTINATION, "").strip().upper()
+                    destination = user_input.get(CONF_DESTINATION, "").strip()
                     if not destination:
                         errors[CONF_DESTINATION] = "required"
                         raise ValueError("destination_required")
 
-                    # Validate both stations
+                    # Validate both stations (destination passed as-is, matching original behaviour)
                     station_info = await validate_stations(
                         self.hass, self._api_key, origin, destination
                     )
 
                     self._origin = origin
-                    self._destination = destination
+                    self._destination = destination.upper()  # normalise after validation
                     self._origin_name = station_info["origin_name"]
                     self._destination_name = station_info["destination_name"]
                     self._all_departures = False
