@@ -161,7 +161,7 @@ def test_summary_includes_historical_stats_when_store_present():
     assert ATTR_AVG_DELAY_7D in attrs
     assert ATTR_BEST_DAY in attrs
     assert ATTR_WORST_DAY in attrs
-    assert ATTR_DAILY_BREAKDOWN in attrs
+    assert ATTR_DAILY_BREAKDOWN not in attrs
 
 
 def test_summary_historical_stats_values_match_store():
@@ -182,7 +182,7 @@ def test_summary_historical_stats_values_match_store():
     assert attrs[ATTR_AVG_DELAY_7D] == 3.4
     assert attrs[ATTR_BEST_DAY]["date"] == "2026-05-18"
     assert attrs[ATTR_WORST_DAY]["date"] == "2026-05-17"
-    assert len(attrs[ATTR_DAILY_BREAKDOWN]) == 3
+    assert ATTR_DAILY_BREAKDOWN not in attrs
 
 
 def test_summary_no_historical_stats_when_store_absent():
@@ -250,7 +250,7 @@ def test_reverse_stats_exposed_when_paired_coordinator_exists():
     assert ATTR_REVERSE_AVG_DELAY_7D in attrs
     assert ATTR_REVERSE_BEST_DAY in attrs
     assert ATTR_REVERSE_WORST_DAY in attrs
-    assert ATTR_REVERSE_DAILY_BREAKDOWN in attrs
+    assert ATTR_REVERSE_DAILY_BREAKDOWN not in attrs
 
 
 def test_reverse_stats_values_match_paired_coordinators_store():
@@ -284,7 +284,6 @@ def test_reverse_stats_values_match_paired_coordinators_store():
     assert attrs[ATTR_REVERSE_AVG_DELAY_7D] == 6.2
     assert attrs[ATTR_REVERSE_BEST_DAY]["date"] == "2026-05-18"
     assert attrs[ATTR_REVERSE_WORST_DAY]["date"] == "2026-05-17"
-    assert len(attrs[ATTR_REVERSE_DAILY_BREAKDOWN]) == 3
 
 
 def test_reverse_stats_absent_when_no_paired_coordinator():
