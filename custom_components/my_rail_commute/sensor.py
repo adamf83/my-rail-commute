@@ -41,7 +41,6 @@ from .const import (
     ATTR_PLATFORM,
     ATTR_REVERSE_AVG_DELAY_7D,
     ATTR_REVERSE_BEST_DAY,
-    ATTR_REVERSE_DAILY_BREAKDOWN,
     ATTR_REVERSE_ON_TIME_PCT_7D,
     ATTR_REVERSE_ON_TIME_PCT_30D,
     ATTR_REVERSE_ON_TIME_PCT_TODAY,
@@ -252,7 +251,8 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
             attrs[ATTR_AVG_DELAY_7D] = rolling_7["avg_delay_minutes"]
             attrs[ATTR_WORST_DAY] = best_worst["worst_day"]
             attrs[ATTR_BEST_DAY] = best_worst["best_day"]
-            attrs[ATTR_DAILY_BREAKDOWN] = store.get_daily_breakdown(30)
+            # daily_breakdown omitted here (available on HistoricalReliabilitySensor)
+            # to keep attribute payload within HA's 16 KB limit
 
         # Expose the paired reverse route's stats so that a card configured with
         # only this entity still has access to both directions' stats when toggled.
@@ -284,7 +284,6 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
                 attrs[ATTR_REVERSE_AVG_DELAY_7D] = rev_7["avg_delay_minutes"]
                 attrs[ATTR_REVERSE_WORST_DAY] = rev_bw["worst_day"]
                 attrs[ATTR_REVERSE_BEST_DAY] = rev_bw["best_day"]
-                attrs[ATTR_REVERSE_DAILY_BREAKDOWN] = rev_store.get_daily_breakdown(30)
 
         if data.get("multi_destination"):
             attrs["multi_destination"] = True
