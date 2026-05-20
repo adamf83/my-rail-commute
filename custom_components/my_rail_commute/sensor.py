@@ -1,4 +1,5 @@
 """Sensor platform for My Rail Commute integration."""
+
 from __future__ import annotations
 
 import logging
@@ -10,17 +11,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import slugify
 
 from .const import (
     ATTR_AVG_DELAY_7D,
     ATTR_AVG_DELAY_TODAY,
     ATTR_BEST_DAY,
-    ATTR_DAILY_BREAKDOWN,
     ATTR_CALLING_POINTS,
     ATTR_CANCELLATION_REASON,
     ATTR_CANCELLED_COUNT,
     ATTR_CANCELLED_COUNT_TODAY,
+    ATTR_DAILY_BREAKDOWN,
     ATTR_DELAY_MINUTES,
     ATTR_DELAY_REASON,
     ATTR_DELAYED_COUNT,
@@ -32,13 +32,20 @@ from .const import (
     ATTR_IS_CANCELLED,
     ATTR_ON_TIME_COUNT,
     ATTR_ON_TIME_COUNT_TODAY,
-    ATTR_ON_TIME_PCT_30D,
     ATTR_ON_TIME_PCT_7D,
+    ATTR_ON_TIME_PCT_30D,
     ATTR_ON_TIME_PCT_TODAY,
     ATTR_OPERATOR,
     ATTR_ORIGIN,
     ATTR_ORIGIN_NAME,
     ATTR_PLATFORM,
+    ATTR_REVERSE_AVG_DELAY_7D,
+    ATTR_REVERSE_BEST_DAY,
+    ATTR_REVERSE_DAILY_BREAKDOWN,
+    ATTR_REVERSE_ON_TIME_PCT_7D,
+    ATTR_REVERSE_ON_TIME_PCT_30D,
+    ATTR_REVERSE_ON_TIME_PCT_TODAY,
+    ATTR_REVERSE_WORST_DAY,
     ATTR_SCHEDULED_ARRIVAL,
     ATTR_SCHEDULED_DEPARTURE,
     ATTR_SERVICE_ID,
@@ -129,7 +136,9 @@ class NationalRailCommuteEntity(CoordinatorEntity[NationalRailDataUpdateCoordina
         origin = coordinator.origin
         destination = coordinator.destination
 
-        device_id = f"{origin}_{destination}" if destination else f"{origin}_all_departures"
+        device_id = (
+            f"{origin}_{destination}" if destination else f"{origin}_all_departures"
+        )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=commute_name,
@@ -245,6 +254,38 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
             attrs[ATTR_BEST_DAY] = best_worst["best_day"]
             attrs[ATTR_DAILY_BREAKDOWN] = store.get_daily_breakdown(30)
 
+        # Expose the paired reverse route's stats so that a card configured with
+        # only this entity still has access to both directions' stats when toggled.
+        # Without this the card shows the forward stats for both directions because
+        # it reads from a fixed entity reference rather than switching on toggle.
+        if self.hass is not None and DOMAIN in self.hass.data:
+            rev_coordinator = next(
+                (
+                    c
+                    for c in self.hass.data[DOMAIN].values()
+                    if (
+                        isinstance(c, NationalRailDataUpdateCoordinator)
+                        and c is not self.coordinator
+                        and c.origin == self.coordinator.destination
+                        and c.destination == self.coordinator.origin
+                    )
+                ),
+                None,
+            )
+            if rev_coordinator is not None and rev_coordinator.stats_store is not None:
+                rev_store = rev_coordinator.stats_store
+                rev_today = rev_store.get_today_stats()
+                rev_7 = rev_store.get_rolling_stats(7)
+                rev_30 = rev_store.get_rolling_stats(30)
+                rev_bw = rev_store.get_best_and_worst_days(30)
+                attrs[ATTR_REVERSE_ON_TIME_PCT_TODAY] = rev_today.get("on_time_pct")
+                attrs[ATTR_REVERSE_ON_TIME_PCT_7D] = rev_7["on_time_pct"]
+                attrs[ATTR_REVERSE_ON_TIME_PCT_30D] = rev_30["on_time_pct"]
+                attrs[ATTR_REVERSE_AVG_DELAY_7D] = rev_7["avg_delay_minutes"]
+                attrs[ATTR_REVERSE_WORST_DAY] = rev_bw["worst_day"]
+                attrs[ATTR_REVERSE_BEST_DAY] = rev_bw["best_day"]
+                attrs[ATTR_REVERSE_DAILY_BREAKDOWN] = rev_store.get_daily_breakdown(30)
+
         if data.get("multi_destination"):
             attrs["multi_destination"] = True
             attrs["services_by_destination"] = data.get("services_by_destination", {})
@@ -341,12 +382,14 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
         total_trains = len(services)
         cancelled_count = sum(1 for s in services if s.get("is_cancelled", False))
         major_delays = sum(
-            1 for s in services
+            1
+            for s in services
             if not s.get("is_cancelled", False)
             and s.get("delay_minutes", 0) >= self.coordinator.major_delay_threshold
         )
         minor_delays = sum(
-            1 for s in services
+            1
+            for s in services
             if not s.get("is_cancelled", False)
             and s.get("delay_minutes", 0) >= self.coordinator.minor_delay_threshold
             and s.get("delay_minutes", 0) < self.coordinator.major_delay_threshold
@@ -357,8 +400,12 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
         max_delay = 0
         if services:
             max_delay = max(
-                (s.get("delay_minutes", 0) for s in services if not s.get("is_cancelled", False)),
-                default=0
+                (
+                    s.get("delay_minutes", 0)
+                    for s in services
+                    if not s.get("is_cancelled", False)
+                ),
+                default=0,
             )
 
         return {
@@ -368,7 +415,8 @@ class CommuteStatusSensor(NationalRailCommuteEntity, SensorEntity):
             "major_delays_count": major_delays,
             "cancelled_count": cancelled_count,
             "max_delay_minutes": max_delay,
-            "disruption_threshold_met": data.get("overall_status", STATUS_NORMAL) != STATUS_NORMAL,
+            "disruption_threshold_met": data.get("overall_status", STATUS_NORMAL)
+            != STATUS_NORMAL,
             ATTR_ORIGIN: data.get("origin"),
             ATTR_ORIGIN_NAME: data.get("origin_name"),
             ATTR_DESTINATION: data.get("destination"),
@@ -432,7 +480,9 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
 
             # Validate service_id is not empty/None before tracking
             # Empty or None service_id cannot be reliably used for platform change detection
-            if not current_service_id or (isinstance(current_service_id, str) and not current_service_id.strip()):
+            if not current_service_id or (
+                isinstance(current_service_id, str) and not current_service_id.strip()
+            ):
                 # Invalid service_id - reset tracking and skip platform change detection
                 _LOGGER.debug(
                     "Train %d: Invalid service_id (empty/None), skipping platform tracking",
@@ -441,7 +491,10 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
                 self._platform_changed = False
                 self._previous_platform = None
                 self._current_service_id = None
-            elif self._current_service_id and current_service_id == self._current_service_id:
+            elif (
+                self._current_service_id
+                and current_service_id == self._current_service_id
+            ):
                 # Same service - check for platform change
                 if self._previous_platform != current_platform:
                     if self._previous_platform is not None:
@@ -564,7 +617,9 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
             ATTR_PLATFORM: train.get("platform"),
             "platform_changed": self._platform_changed,
-            "previous_platform": self._previous_platform if self._platform_changed else None,
+            "previous_platform": self._previous_platform
+            if self._platform_changed
+            else None,
             ATTR_OPERATOR: train.get("operator"),
             ATTR_SERVICE_ID: train.get("service_id"),
             ATTR_STATUS: train.get("status"),
@@ -656,7 +711,9 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
 
             # Validate service_id is not empty/None before tracking
             # Empty or None service_id cannot be reliably used for platform change detection
-            if not current_service_id or (isinstance(current_service_id, str) and not current_service_id.strip()):
+            if not current_service_id or (
+                isinstance(current_service_id, str) and not current_service_id.strip()
+            ):
                 # Invalid service_id - reset tracking and skip platform change detection
                 _LOGGER.debug(
                     "Next train: Invalid service_id (empty/None), skipping platform tracking",
@@ -664,7 +721,10 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
                 self._platform_changed = False
                 self._previous_platform = None
                 self._current_service_id = None
-            elif self._current_service_id and current_service_id == self._current_service_id:
+            elif (
+                self._current_service_id
+                and current_service_id == self._current_service_id
+            ):
                 # Same service - check for platform change
                 if self._previous_platform != current_platform:
                     if self._previous_platform is not None:
@@ -784,7 +844,9 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
             ATTR_PLATFORM: train.get("platform"),
             "platform_changed": self._platform_changed,
-            "previous_platform": self._previous_platform if self._platform_changed else None,
+            "previous_platform": self._previous_platform
+            if self._platform_changed
+            else None,
             ATTR_OPERATOR: train.get("operator"),
             ATTR_SERVICE_ID: train.get("service_id"),
             ATTR_STATUS: train.get("status"),

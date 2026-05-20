@@ -1,4 +1,5 @@
 """Constants for the My Rail Commute integration."""
+
 from datetime import timedelta
 from typing import Final
 
@@ -25,7 +26,9 @@ CONF_DISRUPTION_MULTIPLE_DELAY: Final = "disruption_multiple_delay"
 CONF_DISRUPTION_MULTIPLE_COUNT: Final = "disruption_multiple_count"
 
 # API Configuration
-API_BASE_URL: Final = "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
+API_BASE_URL: Final = (
+    "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
+)
 API_TIMEOUT: Final = 30
 
 # Default values
@@ -123,7 +126,9 @@ ATTR_DISRUPTION_REASONS: Final = "disruption_reasons"
 
 # API Error Messages
 ERROR_AUTH: Final = "Authentication failed. Please check your API key."
-ERROR_INVALID_STATION: Final = "Invalid station code. Please use a valid 3-letter CRS code."
+ERROR_INVALID_STATION: Final = (
+    "Invalid station code. Please use a valid 3-letter CRS code."
+)
 ERROR_NO_SERVICES: Final = "No services found for this route."
 ERROR_API_UNAVAILABLE: Final = "Rail API is currently unavailable."
 ERROR_RATE_LIMIT: Final = "API rate limit exceeded. Retrying later."
@@ -149,3 +154,12 @@ ATTR_ON_TIME_COUNT_TODAY: Final = "on_time_count_today"
 ATTR_DELAYED_COUNT_TODAY: Final = "delayed_count_today"
 ATTR_CANCELLED_COUNT_TODAY: Final = "cancelled_count_today"
 ATTR_DAILY_BREAKDOWN: Final = "daily_breakdown"
+
+# Reverse-route stats attributes (exposed on CommuteSummarySensor for the paired direction)
+ATTR_REVERSE_ON_TIME_PCT_TODAY: Final = "reverse_on_time_pct_today"
+ATTR_REVERSE_ON_TIME_PCT_7D: Final = "reverse_on_time_pct_7day"
+ATTR_REVERSE_ON_TIME_PCT_30D: Final = "reverse_on_time_pct_30day"
+ATTR_REVERSE_AVG_DELAY_7D: Final = "reverse_avg_delay_7day"
+ATTR_REVERSE_WORST_DAY: Final = "reverse_worst_day"
+ATTR_REVERSE_BEST_DAY: Final = "reverse_best_day"
+ATTR_REVERSE_DAILY_BREAKDOWN: Final = "reverse_daily_breakdown"
