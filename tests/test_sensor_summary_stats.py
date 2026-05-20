@@ -8,8 +8,8 @@ from custom_components.my_rail_commute.const import (
     ATTR_AVG_DELAY_7D,
     ATTR_BEST_DAY,
     ATTR_DAILY_BREAKDOWN,
-    ATTR_ON_TIME_PCT_7D,
     ATTR_ON_TIME_PCT_30D,
+    ATTR_ON_TIME_PCT_7D,
     ATTR_ON_TIME_PCT_TODAY,
     ATTR_WORST_DAY,
 )
@@ -118,7 +118,7 @@ def _make_stats_store(
 
 
 def test_summary_includes_historical_stats_when_store_present():
-    """CommuteSummarySensor attrs include historical stats when stats_store is set."""
+    """CommuteSummarySensor attrs include summary stats but not daily_breakdown."""
     store = _make_stats_store()
     sensor = _make_sensor(stats_store=store)
 
@@ -130,7 +130,8 @@ def test_summary_includes_historical_stats_when_store_present():
     assert ATTR_AVG_DELAY_7D in attrs
     assert ATTR_BEST_DAY in attrs
     assert ATTR_WORST_DAY in attrs
-    assert ATTR_DAILY_BREAKDOWN in attrs
+    # daily_breakdown is omitted to stay within HA's 16 KB attribute limit
+    assert ATTR_DAILY_BREAKDOWN not in attrs
 
 
 def test_summary_historical_stats_values_match_store():
@@ -151,11 +152,11 @@ def test_summary_historical_stats_values_match_store():
     assert attrs[ATTR_AVG_DELAY_7D] == 3.4
     assert attrs[ATTR_BEST_DAY]["date"] == "2026-05-18"
     assert attrs[ATTR_WORST_DAY]["date"] == "2026-05-17"
-    assert len(attrs[ATTR_DAILY_BREAKDOWN]) == 3
+    assert ATTR_DAILY_BREAKDOWN not in attrs
 
 
 def test_summary_no_historical_stats_when_store_absent():
-    """CommuteSummarySensor attrs omit historical stats when stats_store is None."""
+    """CommuteSummarySensor attrs omit all historical stats when stats_store is None."""
     sensor = _make_sensor(stats_store=None)
 
     attrs = sensor.extra_state_attributes
@@ -166,7 +167,7 @@ def test_summary_no_historical_stats_when_store_absent():
     assert ATTR_AVG_DELAY_7D not in attrs
     assert ATTR_BEST_DAY not in attrs
     assert ATTR_WORST_DAY not in attrs
-    assert ATTR_DAILY_BREAKDOWN not in attrs
+    assert ATTR_DAILY_BREAKDOWN not in attrs  # never present on summary sensor
 
 
 def test_summary_different_routes_expose_different_stats():
