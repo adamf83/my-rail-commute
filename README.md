@@ -13,6 +13,8 @@ A custom Home Assistant integration that tracks regular commutes using National 
 - **Disruption Detection**: Binary sensor that alerts on cancellations or significant delays
 - **Rich Sensor Data**: Comprehensive attributes including platforms, delays, calling points, and more
 - **Multi-Route Support**: Configure multiple commutes (e.g., morning and evening journeys)
+- **All Departures Mode**: Optionally track all departures from an origin station with no fixed destination
+- **Historical Performance Tracking**: Persistent daily statistics with rolling 7-day and 30-day on-time percentages and average delays
 - **UI Configuration**: Easy setup through Home Assistant's config flow interface
 - **HACS Compatible**: Simple installation via Home Assistant Community Store
 - **Custom Lovelace Card**: Beautiful, dedicated [dashboard card](https://github.com/adamf83/lovelace-my-rail-commute-card) for displaying train information
@@ -79,7 +81,7 @@ The integration creates multiple sensors for each configured commute:
   - `status`: Internal status code
   - `delay_minutes`: Number of minutes delayed (0 if on time)
   - `is_cancelled`: Boolean indicating cancellation
-  - `calling_points`: List of stops the train will make
+  - `calling_points`: List of stops the train will make (filtered to your configured destination)
   - `scheduled_arrival`: Original scheduled arrival time (HH:MM)
   - `estimated_arrival`: Expected arrival time including delays (HH:MM)
   - `cancellation_reason`: Reason if cancelled
@@ -117,6 +119,54 @@ The integration creates multiple sensors for each configured commute:
   - `disruption_reasons`: List of reasons for disruptions (cancellations and delays)
   - `last_checked`: Timestamp of last update
 - **Trigger Logic**: Binary sensor is "on" when status is anything other than Normal
+
+### 6. Historical Reliability Sensor
+- **Entity ID**: `sensor.{commute_name}_historical_reliability`
+- **State**: On-time percentage over the last 7 days (as a `%` measurement)
+- **Attributes**:
+  - `on_time_pct_today`: Today's on-time percentage
+  - `on_time_pct_7day`: Rolling 7-day on-time percentage
+  - `on_time_pct_30day`: Rolling 30-day on-time percentage
+  - `on_time_count_today` / `delayed_count_today` / `cancelled_count_today`: Today's raw counts
+  - `total_observations_today`: Number of data points recorded today
+  - `days_with_data_7day` / `days_with_data_30day`: Days with recorded data in each window
+  - `daily_breakdown`: Per-day statistics for the last 30 days
+- **Use Case**: Track your route's reliability over time and spot long-term trends
+
+### 7. Historical Delays Sensor
+- **Entity ID**: `sensor.{commute_name}_historical_delays`
+- **State**: Average delay in minutes over the last 7 days (as a `min` measurement)
+- **Attributes**:
+  - `avg_delay_today`: Average delay in minutes today
+  - `avg_delay_7day`: Rolling 7-day average delay
+  - `worst_day`: Date and stats for the worst day in the last 30 days
+  - `best_day`: Date and stats for the best day in the last 30 days
+  - `days_with_data_7day`: Days with recorded data in the 7-day window
+- **Use Case**: Understand whether your route is getting better or worse, and identify your worst days
+
+## Actions
+
+The integration provides several actions (callable via **Developer Tools → Actions** or automations):
+
+### Add Favourite
+Save a departure time as a favourite so it persists even after the train has departed.
+
+### Remove Favourite / Clear Favourites
+Remove a saved favourite departure time, or clear all favourites for a commute.
+
+### Flag Train / Unflag Train / Clear Flagged Trains
+Flag a specific train service for later review (e.g., to note a delay or overcrowding issue). Flagged trains persist after departure.
+
+### Get Historical Raw Data
+Retrieve the full raw historical daily statistics for a commute — up to 90 days of per-day on-time and delay data. Useful for exporting data or building custom dashboards.
+
+```yaml
+action: my_rail_commute.get_historical_raw_data
+data:
+  entry_id: "your_config_entry_id"
+```
+
+The response includes an array of daily records with `date`, `on_time_count`, `delayed_count`, `cancelled_count`, `total_observations`, and `total_delay_minutes`.
 
 ## Prerequisites
 
@@ -536,5 +586,5 @@ Train times and information are provided by National Rail's systems. While we st
 
 ---
 
-**Version**: 1.1.0
+**Version**: 1.1.5
 **Minimum Home Assistant Version**: 2024.1.0
