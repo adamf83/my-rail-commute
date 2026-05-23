@@ -72,7 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator.stats_store = stats_store
 
         # Fetch initial data
-        _LOGGER.debug("Fetching initial data for %s -> %s", config[CONF_ORIGIN], config[CONF_DESTINATION])
+        _LOGGER.debug("Fetching initial data for %s -> %s", config.get(CONF_ORIGIN), config.get(CONF_DESTINATION))
         await coordinator.async_config_entry_first_refresh()
 
         # Store coordinator
