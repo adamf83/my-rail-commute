@@ -13,7 +13,9 @@ from homeassistant.util import dt as dt_util
 
 from .api import NationalRailAPI, NationalRailAPIError
 from .const import (
+    BOARD_TYPE_ARRIVALS,
     CONF_ALL_DEPARTURES,
+    CONF_BOARD_TYPE,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
     CONF_DISRUPTION_MULTIPLE_COUNT,
@@ -78,6 +80,13 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         self.origin = config[CONF_ORIGIN]
         self.destination = config.get(CONF_DESTINATION)  # None when all_departures=True
         self.all_departures = config.get(CONF_ALL_DEPARTURES, False)
+        # Arrivals mode: trains arriving at origin from destination. Requires a destination
+        # (never applies to all-departures entries).
+        self.is_arrivals = (
+            config.get(CONF_BOARD_TYPE) == BOARD_TYPE_ARRIVALS
+            and self.destination is not None
+            and not self.all_departures
+        )
         self.time_window = int(config[CONF_TIME_WINDOW])
         self.num_services = int(config[CONF_NUM_SERVICES])
         self.night_updates_enabled = config.get(CONF_NIGHT_UPDATES, False)
@@ -140,6 +149,16 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=update_interval,
         )
+
+    @property
+    def device_id(self) -> str:
+        """Stable HA device registry identifier for this coordinator's entities."""
+        base = (
+            f"{self.origin}_{self.destination}"
+            if self.destination
+            else f"{self.origin}_all_departures"
+        )
+        return f"{base}_arr" if self.is_arrivals else base
 
     def _get_update_interval(self) -> timedelta:
         """Get update interval based on current time.
@@ -207,6 +226,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 destination_crs=self.destination,
                 time_window=self.time_window,
                 num_rows=num_rows,
+                arrivals_mode=self.is_arrivals,
             )
 
             # Store station names
@@ -287,17 +307,22 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         current_time_str = now.strftime("%H:%M")
         filtered_services = []
 
+        # In arrivals mode the relevant moment is the train's arrival here, not
+        # its departure from elsewhere — filter out ones that have already
+        # arrived rather than already departed.
+        if self.is_arrivals:
+            primary_key, fallback_key = "estimated_arrival", "scheduled_arrival"
+        else:
+            primary_key, fallback_key = "expected_departure", "scheduled_departure"
+
         for service in services:
             # Skip cancelled trains - they should be shown regardless of time
             if service.get("is_cancelled", False):
                 filtered_services.append(service)
                 continue
 
-            # Get departure time (prefer expected, fallback to scheduled)
-            if "expected_departure" in service:
-                departure_time = service["expected_departure"]
-            else:
-                departure_time = service.get("scheduled_departure")
+            # Get the relevant time (prefer the live estimate, fallback to scheduled)
+            departure_time = service.get(primary_key) or service.get(fallback_key)
 
             if not departure_time or not _TIME_FORMAT_RE.match(departure_time):
                 # If we can't parse the time, keep the service

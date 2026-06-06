@@ -129,22 +129,25 @@ class NationalRailCommuteEntity(CoordinatorEntity[NationalRailDataUpdateCoordina
 
         self._entry = entry
         self._attr_has_entity_name = True
+        self._is_arrivals = coordinator.is_arrivals
 
         # Create device info
         commute_name = entry.data.get(CONF_COMMUTE_NAME, "My Rail Commute")
-        origin = coordinator.origin
-        destination = coordinator.destination
-
-        device_id = (
-            f"{origin}_{destination}" if destination else f"{origin}_all_departures"
-        )
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, device_id)},
+            identifiers={(DOMAIN, coordinator.device_id)},
             name=commute_name,
             manufacturer="National Rail",
             model="Live Departure Board",
             entry_type="service",
         )
+
+    @property
+    def _mode(self) -> str:
+        return "arrivals" if self._is_arrivals else "departures"
+
+    @staticmethod
+    def _arrival_time(train: dict[str, Any]) -> str | None:
+        return train.get("estimated_arrival") or train.get("scheduled_arrival")
 
 
 class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
@@ -266,6 +269,7 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
                     if (
                         isinstance(c, NationalRailDataUpdateCoordinator)
                         and c is not self.coordinator
+                        and not c.is_arrivals
                         and c.origin == self.coordinator.destination
                         and c.destination == self.coordinator.origin
                     )
@@ -443,7 +447,9 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
         super().__init__(coordinator, entry)
 
         self._train_number = train_number
-        self._attr_name = f"Train {train_number}"
+        self._attr_name = (
+            f"Arrival {train_number}" if self._is_arrivals else f"Train {train_number}"
+        )
         self._attr_unique_id = f"{entry.entry_id}_train_{train_number}"
 
         # Platform change tracking
@@ -612,6 +618,8 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             "train_number": self._train_number,
             "total_trains": len(services),
             "departure_time": departure_time,  # Moved from state to attribute
+            "arrival_time": self._arrival_time(train),
+            "mode": self._mode,
             ATTR_SCHEDULED_DEPARTURE: train.get("scheduled_departure"),
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
             ATTR_PLATFORM: train.get("platform"),
@@ -685,7 +693,7 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
         """
         super().__init__(coordinator, entry)
 
-        self._attr_name = "Next Train"
+        self._attr_name = "Next Arrival" if self._is_arrivals else "Next Train"
         self._attr_unique_id = f"{entry.entry_id}_next_train"
         self._attr_icon = "mdi:train-car"
 
@@ -839,6 +847,8 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             "train_number": 1,
             "total_trains": len(services),
             "departure_time": departure_time,  # Moved from state to attribute
+            "arrival_time": self._arrival_time(train),
+            "mode": self._mode,
             ATTR_SCHEDULED_DEPARTURE: train.get("scheduled_departure"),
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
             ATTR_PLATFORM: train.get("platform"),

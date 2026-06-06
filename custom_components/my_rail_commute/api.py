@@ -344,14 +344,17 @@ class NationalRailAPI:
         destination_crs: str | None = None,
         time_window: int = 60,
         num_rows: int = 10,
+        arrivals_mode: bool = False,
     ) -> dict[str, Any]:
-        """Get departure board for a route.
+        """Get departure (or arrivals) board for a route.
 
         Args:
             origin_crs: Origin station CRS code (3 letters)
             destination_crs: Destination station CRS code (3 letters), or None for all departures
             time_window: Time window in minutes
             num_rows: Number of services to retrieve
+            arrivals_mode: Fetch arrivals at ``origin_crs`` coming from ``destination_crs``
+                (filterType=from) rather than departures going to it (filterType=to)
 
         Returns:
             Departure board data with services
@@ -361,39 +364,49 @@ class NationalRailAPI:
             NationalRailAPIError: For other API errors
         """
         _LOGGER.debug(
-            "Fetching departure board: %s -> %s (window: %s mins, rows: %s)",
+            "Fetching %s board: %s %s %s (window: %s mins, rows: %s)",
+            "arrivals" if arrivals_mode else "departure",
             origin_crs,
+            "<-" if arrivals_mode else "->",
             destination_crs or "ALL",
             time_window,
             num_rows,
         )
 
         # Use path parameters for the CRS code and query parameters for filters
-        endpoint = f"GetDepBoardWithDetails/{origin_crs.upper()}"
+        endpoint = f"GetArrDepBoardWithDetails/{origin_crs.upper()}"
         params: dict[str, Any] = {
             "timeWindow": time_window,
             "numRows": num_rows,
         }
         if destination_crs:
             params["filterCrs"] = destination_crs.upper()
+            params["filterType"] = "from" if arrivals_mode else "to"
 
         try:
             data = await self._request(endpoint, params)
-            return self._parse_departure_board(data, destination_crs)
+            return self._parse_departure_board(data, destination_crs, arrivals_mode=arrivals_mode)
         except InvalidStationError:
             raise
         except NationalRailAPIError as err:
             _LOGGER.error("Failed to get departure board: %s", err)
             raise
 
-    def _parse_departure_board(self, data: dict[str, Any], destination_crs: str | None = None) -> dict[str, Any]:
-        """Parse departure board response.
+    def _parse_departure_board(
+        self,
+        data: dict[str, Any],
+        destination_crs: str | None = None,
+        arrivals_mode: bool = False,
+    ) -> dict[str, Any]:
+        """Parse departure (or arrivals) board response.
 
         Args:
             data: Raw API response
+            destination_crs: Partner CRS — destination for departures, origin for arrivals
+            arrivals_mode: Parse as an arrivals board (sta/eta + previousCallingPoints)
 
         Returns:
-            Parsed departure board data
+            Parsed board data
         """
         # Handle different response structures
         board = data.get("GetStationBoardResult", data)
@@ -410,31 +423,51 @@ class NationalRailAPI:
 
         parsed_services = []
         for service in services_list:
-            parsed_service = self._parse_service(service, destination_crs)
+            parsed_service = self._parse_service(service, destination_crs, arrivals_mode=arrivals_mode)
             if parsed_service:
                 parsed_services.append(parsed_service)
 
         return {
             "location_name": location_name,
+            # In arrivals mode this is actually the origin partner station name;
+            # the field is reused to keep the parsed shape identical across modes.
             "destination_name": destination_name,
             "services": parsed_services,
             "generated_at": board.get("generatedAt"),
             "nrcc_messages": board.get("nrccMessages", []),
         }
 
-    def _parse_service(self, service: dict[str, Any], destination_crs: str | None = None) -> dict[str, Any] | None:
+    def _parse_service(
+        self,
+        service: dict[str, Any],
+        destination_crs: str | None = None,
+        *,
+        arrivals_mode: bool = False,
+    ) -> dict[str, Any] | None:
         """Parse a single train service.
 
         Args:
             service: Raw service data
+            destination_crs: Partner CRS — destination for departures, origin for arrivals
+            arrivals_mode: Headline times are sta/eta and the partner stop sits in
+                ``previousCallingPoints`` rather than ``subsequentCallingPoints``
 
         Returns:
             Parsed service data or None if invalid
         """
         try:
-            # Basic service info
-            std = service.get("std", "")  # Scheduled departure
-            etd = service.get("etd", "")  # Estimated departure
+            # Basic service info — sta/eta in arrivals mode, std/etd otherwise.
+            # Local names stay std/etd so the delay calc below is unchanged.
+            if arrivals_mode:
+                std = service.get("sta", "")
+                etd = service.get("eta", "")
+            else:
+                std = service.get("std", "")
+                etd = service.get("etd", "")
+            # GetArrDepBoardWithDetails returns combined rows; drop ones without
+            # a headline time for the current mode (e.g. arrival-only terminus rows).
+            if not std:
+                return None
             platform = service.get("platform", "")
             operator_name = service.get("operator", service.get("operatorName", ""))
             service_id = service.get("serviceID", service.get("serviceIdUrlSafe", ""))
@@ -449,9 +482,11 @@ class NationalRailAPI:
 
             if not is_cancelled and etd and etd != "On time":
                 status = STATUS_DELAYED
-                expected_departure = etd
-                # Try to parse delay from etd if it's a time
-                if _TIME_FORMAT_RE.match(etd) and _TIME_FORMAT_RE.match(std):
+                # ``etd`` may be a status word ("Delayed", "Cancelled"); only keep it
+                # as a real estimate when it looks like a clock time.
+                if _TIME_FORMAT_RE.match(etd):
+                    expected_departure = etd
+                if expected_departure and _TIME_FORMAT_RE.match(std):
                     try:
                         # Use a reference date to parse times and handle midnight crossing
                         std_time = datetime.strptime(f"2000-01-01 {std}", "%Y-%m-%d %H:%M")
@@ -483,34 +518,71 @@ class NationalRailAPI:
             elif isinstance(destination, dict):
                 destination = destination.get("locationName", "")
 
-            # Subsequent calling points and arrival time
+            # Origin name (shown in arrivals mode)
+            origin = service.get("origin", [])
+            if isinstance(origin, list) and origin:
+                origin = origin[0].get("locationName", "")
+            elif isinstance(origin, dict):
+                origin = origin.get("locationName", "")
+            else:
+                origin = ""
+
+            # Walk subsequent (departures) or previous (arrivals) calling points
+            # to find destination_crs and capture its st/et times.
             calling_points = []
             scheduled_arrival = None
             estimated_arrival = None
-            subsequent_points = service.get("subsequentCallingPoints", [])
+            points_key = "previousCallingPoints" if arrivals_mode else "subsequentCallingPoints"
+            subsequent_points = service.get(points_key, [])
             if isinstance(subsequent_points, list) and subsequent_points:
                 calling_point_list = subsequent_points[0].get("callingPoint", [])
                 if not isinstance(calling_point_list, list):
                     calling_point_list = [calling_point_list]
 
-                # Build calling points list, truncating at destination if configured
+                # Build calling points list, truncating at the partner stop. In
+                # arrivals mode the partner is the start of the leg (keep stops
+                # from there onward); in departures mode it's the end.
                 dest_point = None
                 filtered = []
                 for cp in calling_point_list:
                     if not cp:
                         continue
-                    filtered.append(cp)
-                    if destination_crs and cp.get("crs", "").upper() == destination_crs.upper():
-                        dest_point = cp
-                        break  # Stop collecting stops after the destination
+                    is_partner = destination_crs and cp.get("crs", "").upper() == destination_crs.upper()
+                    if arrivals_mode:
+                        if is_partner and dest_point is None:
+                            dest_point = cp
+                            filtered = [cp]
+                        elif dest_point is not None:
+                            filtered.append(cp)
+                    else:
+                        filtered.append(cp)
+                        if is_partner:
+                            dest_point = cp
+                            break  # Stop collecting stops after the destination
 
-                if dest_point is None and filtered:
-                    dest_point = filtered[-1]
+                if dest_point is None and calling_point_list:
+                    # Fall back to first/last known stop if we couldn't match the CRS.
+                    valid = [cp for cp in calling_point_list if cp]
+                    if arrivals_mode:
+                        dest_point = valid[0] if valid else None
+                        filtered = valid
+                    else:
+                        dest_point = valid[-1] if valid else None
 
                 calling_points = [cp.get("locationName", "") for cp in filtered]
                 if dest_point:
                     scheduled_arrival = dest_point.get("st")
-                    estimated_arrival = dest_point.get("et")
+                    raw_et = dest_point.get("et")
+                    # ``et`` may be a status word ("On time", "Delayed", "Cancelled");
+                    # only keep it as an estimate when it's an actual clock time.
+                    if raw_et and _TIME_FORMAT_RE.match(raw_et):
+                        estimated_arrival = raw_et
+
+            # In arrivals mode our headline std/etd are arrival-here times and
+            # the partner-stop times are the departure side — swap the pairs.
+            if arrivals_mode:
+                std, scheduled_arrival = scheduled_arrival, std
+                expected_departure, estimated_arrival = estimated_arrival, expected_departure
 
             return {
                 "scheduled_departure": std,
@@ -527,6 +599,7 @@ class NationalRailAPI:
                 "scheduled_arrival": scheduled_arrival,
                 "estimated_arrival": estimated_arrival or scheduled_arrival,
                 "destination": destination,
+                "origin": origin,
             }
         except Exception as err:
             _LOGGER.error("Error parsing service: %s", err)

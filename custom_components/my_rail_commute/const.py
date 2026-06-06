@@ -19,6 +19,13 @@ CONF_MINOR_DELAY_THRESHOLD: Final = "minor_delay_threshold"
 CONF_DEPARTED_TRAIN_GRACE_PERIOD: Final = "departed_train_grace_period"
 CONF_ADD_RETURN_JOURNEY: Final = "add_return_journey"
 CONF_ALL_DEPARTURES: Final = "all_departures"
+CONF_ADD_ARRIVALS: Final = "add_arrivals"
+# Which board a config entry tracks at its origin station: departures from it,
+# or arrivals into it (filtered to trains coming from the destination).
+CONF_BOARD_TYPE: Final = "board_type"
+BOARD_TYPE_DEPARTURES: Final = "departures"
+BOARD_TYPE_ARRIVALS: Final = "arrivals"
+DEFAULT_BOARD_TYPE: Final = BOARD_TYPE_DEPARTURES
 
 # Legacy config keys (for migration)
 CONF_DISRUPTION_SINGLE_DELAY: Final = "disruption_single_delay"
@@ -27,7 +34,7 @@ CONF_DISRUPTION_MULTIPLE_COUNT: Final = "disruption_multiple_count"
 
 # API Configuration
 API_BASE_URL: Final = (
-    "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
+    "https://api1.raildata.org.uk/1010-live-arrival-and-departure-boards-arr-and-dep1_1/LDBWS/api/20220120"
 )
 API_TIMEOUT: Final = 30
 
