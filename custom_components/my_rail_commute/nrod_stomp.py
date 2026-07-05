@@ -266,6 +266,13 @@ class NrodFeedManager:
         into opening their own connection — NROD only allows a single
         connection per account, so two simultaneous logins just knock
         each other off the feed.
+
+        A failed initial connect does not raise: it falls back to the same
+        backoff reconnect loop used for post-connect drops, so a transient
+        NROD outage during HA bootstrap doesn't permanently strand this
+        entry's subscription (unlogged and unregistered from the shared
+        manager, since it registers itself above before ever attempting to
+        connect).
         """
         self._entry_callback[entry_id] = subscriber
         self._entry_stanox[entry_id] = set(stanox_codes)
@@ -275,8 +282,16 @@ class NrodFeedManager:
                 callbacks.append(subscriber)
 
         async with self._connect_lock:
-            if self._connection is None:
-                await self._async_connect()
+            if self._connection is None and not self.connected:
+                try:
+                    await self._async_connect()
+                except Exception:  # noqa: BLE001 - third-party client raises assorted errors
+                    _LOGGER.warning(
+                        "Initial connect to Network Rail Open Data feed failed; "
+                        "scheduling reconnect",
+                        exc_info=True,
+                    )
+                    self._schedule_reconnect()
 
     async def async_release(self, entry_id: str) -> None:
         """Remove a config entry's subscription.

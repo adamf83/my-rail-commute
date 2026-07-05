@@ -237,6 +237,31 @@ async def test_release_last_entry_disconnects():
 
 
 @pytest.mark.asyncio
+async def test_acquire_survives_initial_connect_failure():
+    """A failed initial connect must not raise out of async_acquire.
+
+    Previously this exception propagated to the caller, which meant the
+    config entry's coordinator never got wired to the feed manager and no
+    reconnect was ever scheduled - Recent Train Times stayed permanently
+    broken for that entry until Home Assistant was restarted.
+    """
+    hass = _make_hass()
+    manager = NrodFeedManager(hass, "user", "pass")
+    manager._connect_sync = MagicMock(side_effect=ConnectionError("simulated failure"))
+
+    # Must not raise, even though the connect attempt fails.
+    await manager.async_acquire("entry_a", MagicMock(), {"87701"})
+
+    assert manager.has_subscribers
+    assert manager._reconnect_task is not None
+
+    manager._stopped = True  # let the background reconnect loop exit cleanly
+    manager._reconnect_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await manager._reconnect_task
+
+
+@pytest.mark.asyncio
 async def test_dispatch_routes_by_stanox_only_to_matching_subscriber():
     """An incoming event is only delivered to the subscriber for its STANOX."""
     hass = _make_hass()
