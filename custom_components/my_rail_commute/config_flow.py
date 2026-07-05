@@ -7,14 +7,13 @@ import math
 from pathlib import Path
 from typing import Any
 
-import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import voluptuous as vol
 
 from .api import (
     AuthenticationError,
@@ -28,17 +27,20 @@ from .const import (
     CONF_COMMUTE_NAME,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
-    CONF_DISRUPTION_MULTIPLE_COUNT,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
+    CONF_ENABLE_RECENT_TRAIN_TIMES,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
+    CONF_NROD_PASSWORD,
+    CONF_NROD_USERNAME,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
     DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD,
+    DEFAULT_ENABLE_RECENT_TRAIN_TIMES,
     DEFAULT_MAJOR_DELAY_THRESHOLD,
     DEFAULT_MINOR_DELAY_THRESHOLD,
     DEFAULT_NAME,
@@ -58,6 +60,7 @@ from .const import (
     MIN_NUM_SERVICES,
     MIN_TIME_WINDOW,
 )
+from .corpus import CorpusAuthenticationError, CorpusError, CorpusReferenceStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,6 +155,23 @@ async def validate_stations(
     }
 
 
+async def validate_nrod_credentials(hass: HomeAssistant, username: str, password: str) -> None:
+    """Validate Network Rail Open Data credentials.
+
+    Args:
+        hass: Home Assistant instance
+        username: NROD account username
+        password: NROD account password
+
+    Raises:
+        CorpusAuthenticationError: If authentication fails
+        CorpusError: For other connectivity errors
+    """
+    session = async_get_clientsession(hass)
+    corpus_store = CorpusReferenceStore(hass, session)
+    await corpus_store.async_test_credentials(username, password)
+
+
 def validate_delay_thresholds(
     severe: int,
     major: int,
@@ -196,6 +216,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._minor_delay_threshold: int | None = None
         self._departed_train_grace_period: int | None = None
         self._nearby_stations: list[tuple[float, dict]] | None = None
+        self._enable_recent_train_times: bool = False
+        self._nrod_username: str | None = None
+        self._nrod_password: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -413,6 +436,12 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_thresholds"
                 _LOGGER.error("Invalid delay thresholds: %s", err)
 
+            enable_recent_train_times = bool(
+                user_input.get(CONF_ENABLE_RECENT_TRAIN_TIMES, False)
+            )
+            if enable_recent_train_times and self._all_departures:
+                errors["base"] = "recent_train_times_needs_destination"
+
             if not errors:
                 # Store settings in instance variables
                 if self._all_departures:
@@ -429,6 +458,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._departed_train_grace_period = user_input.get(
                     CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
                 )
+                self._enable_recent_train_times = enable_recent_train_times
 
                 # Set unique ID based on route (all-departures gets a distinct suffix)
                 if self._all_departures:
@@ -437,6 +467,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     unique_id = f"{self._origin}_{self._destination}"
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured()
+
+                if self._enable_recent_train_times:
+                    return await self.async_step_nrod_credentials()
 
                 # Skip return-journey step when showing all departures
                 if self._all_departures:
@@ -531,6 +564,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
                 ),
+                vol.Optional(
+                    CONF_ENABLE_RECENT_TRAIN_TIMES,
+                    default=DEFAULT_ENABLE_RECENT_TRAIN_TIMES,
+                ): selector.BooleanSelector(),
             }
         )
 
@@ -543,6 +580,77 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "destination": self._destination_name or "All destinations",
             },
         )
+
+    async def async_step_nrod_credentials(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Collect (or reuse) Network Rail Open Data credentials.
+
+        Only entered when Recent Train Times has been enabled for this
+        route. NROD credentials are account-wide, so if another entry
+        already has them configured they're reused silently, exactly like
+        the Rail Data Marketplace API key.
+
+        Args:
+            user_input: User input data
+
+        Returns:
+            FlowResult for the next step
+        """
+        existing_entries = self._async_current_entries()
+        for existing_entry in existing_entries:
+            existing_username = existing_entry.data.get(CONF_NROD_USERNAME)
+            existing_password = existing_entry.data.get(CONF_NROD_PASSWORD)
+            if existing_username and existing_password:
+                _LOGGER.debug("Reusing NROD credentials from existing integration")
+                self._nrod_username = existing_username
+                self._nrod_password = existing_password
+                return await self._async_next_step_after_nrod()
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                await validate_nrod_credentials(
+                    self.hass,
+                    user_input[CONF_NROD_USERNAME],
+                    user_input[CONF_NROD_PASSWORD],
+                )
+
+                self._nrod_username = user_input[CONF_NROD_USERNAME]
+                self._nrod_password = user_input[CONF_NROD_PASSWORD]
+
+                return await self._async_next_step_after_nrod()
+
+            except CorpusAuthenticationError:
+                errors["base"] = "invalid_nrod_auth"
+            except CorpusError:
+                errors["base"] = "cannot_connect"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="nrod_credentials",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_NROD_USERNAME): str,
+                    vol.Required(CONF_NROD_PASSWORD): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "signup_url": "https://publicdatafeeds.networkrail.co.uk/",
+            },
+        )
+
+    async def _async_next_step_after_nrod(self) -> FlowResult:
+        """Continue the flow after NROD credentials are settled."""
+        if self._all_departures:
+            return self._create_entry()
+        return await self.async_step_return_journey()
 
     async def async_step_return_journey(
         self, user_input: dict[str, Any] | None = None
@@ -582,6 +690,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
                             CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
                             CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
+                            CONF_ENABLE_RECENT_TRAIN_TIMES: self._enable_recent_train_times,
+                            CONF_NROD_USERNAME: self._nrod_username,
+                            CONF_NROD_PASSWORD: self._nrod_password,
                         },
                     )
                 )
@@ -637,9 +748,13 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
             CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
             CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
+            CONF_ENABLE_RECENT_TRAIN_TIMES: self._enable_recent_train_times,
         }
         if self._destination:
             data[CONF_DESTINATION] = self._destination
+        if self._enable_recent_train_times:
+            data[CONF_NROD_USERNAME] = self._nrod_username
+            data[CONF_NROD_PASSWORD] = self._nrod_password
         return self.async_create_entry(title=self._commute_name, data=data)
 
     @staticmethod
@@ -674,6 +789,10 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
         """
         errors: dict[str, str] = {}
 
+        # Get current values
+        current_data = self.config_entry.data
+        options = self.config_entry.options
+
         if user_input is not None:
             # Validate delay thresholds
             try:
@@ -686,13 +805,37 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "invalid_thresholds"
                 _LOGGER.error("Invalid delay thresholds: %s", err)
 
-            if not errors:
-                # Update the config entry
-                return self.async_create_entry(title="", data=user_input)
+            enable_recent_train_times = bool(
+                user_input.get(CONF_ENABLE_RECENT_TRAIN_TIMES, False)
+            )
+            has_destination = bool(current_data.get(CONF_DESTINATION))
+            if enable_recent_train_times and not has_destination:
+                errors["base"] = "recent_train_times_needs_destination"
 
-        # Get current values
-        current_data = self.config_entry.data
-        options = self.config_entry.options
+            # A blank password in the form means "keep the existing one" so
+            # users aren't forced to re-enter it every time they open options.
+            existing_username = options.get(
+                CONF_NROD_USERNAME, current_data.get(CONF_NROD_USERNAME)
+            )
+            existing_password = options.get(
+                CONF_NROD_PASSWORD, current_data.get(CONF_NROD_PASSWORD)
+            )
+            nrod_username = user_input.get(CONF_NROD_USERNAME) or existing_username
+            nrod_password = user_input.get(CONF_NROD_PASSWORD) or existing_password
+
+            if enable_recent_train_times and not (nrod_username and nrod_password) and not errors:
+                errors["base"] = "nrod_credentials_required"
+
+            if not errors:
+                data = dict(user_input)
+                if enable_recent_train_times:
+                    data[CONF_NROD_USERNAME] = nrod_username
+                    data[CONF_NROD_PASSWORD] = nrod_password
+                else:
+                    data.pop(CONF_NROD_USERNAME, None)
+                    data.pop(CONF_NROD_PASSWORD, None)
+                # Update the config entry
+                return self.async_create_entry(title="", data=data)
 
         data_schema = vol.Schema(
             {
@@ -799,6 +942,24 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                         unit_of_measurement="minutes",
                         mode=selector.NumberSelectorMode.SLIDER,
                     ),
+                ),
+                vol.Optional(
+                    CONF_ENABLE_RECENT_TRAIN_TIMES,
+                    default=options.get(
+                        CONF_ENABLE_RECENT_TRAIN_TIMES,
+                        current_data.get(
+                            CONF_ENABLE_RECENT_TRAIN_TIMES, DEFAULT_ENABLE_RECENT_TRAIN_TIMES
+                        ),
+                    ),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_NROD_USERNAME,
+                    default=options.get(
+                        CONF_NROD_USERNAME, current_data.get(CONF_NROD_USERNAME, "")
+                    ),
+                ): str,
+                vol.Optional(CONF_NROD_PASSWORD, default=""): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
             }
         )

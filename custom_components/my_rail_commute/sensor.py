@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_AVG_DELAY_7D,
@@ -29,7 +30,11 @@ from .const import (
     ATTR_DESTINATION_NAME,
     ATTR_ESTIMATED_ARRIVAL,
     ATTR_EXPECTED_DEPARTURE,
+    ATTR_FEED_CONNECTED,
+    ATTR_FEED_LAST_MESSAGE_AT,
     ATTR_IS_CANCELLED,
+    ATTR_JOURNEYS_RECORDED_TODAY,
+    ATTR_LAST_JOURNEY,
     ATTR_ON_TIME_COUNT,
     ATTR_ON_TIME_COUNT_TODAY,
     ATTR_ON_TIME_PCT_7D,
@@ -39,6 +44,7 @@ from .const import (
     ATTR_ORIGIN,
     ATTR_ORIGIN_NAME,
     ATTR_PLATFORM,
+    ATTR_RECENT_JOURNEYS,
     ATTR_REVERSE_AVG_DELAY_7D,
     ATTR_REVERSE_BEST_DAY,
     ATTR_REVERSE_ON_TIME_PCT_7D,
@@ -100,6 +106,10 @@ async def async_setup_entry(
     # Historical performance sensors
     entities.append(HistoricalReliabilitySensor(coordinator, entry))
     entities.append(HistoricalDelaysSensor(coordinator, entry))
+
+    # Recent Train Times (Network Rail Open Data feed), only when enabled
+    if coordinator.journeys_store is not None:
+        entities.append(RecentTrainTimesSensor(coordinator, entry))
 
     _LOGGER.debug(
         "Setting up %d sensor entities for %s -> %s",
@@ -978,4 +988,64 @@ class HistoricalDelaysSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_WORST_DAY: best_worst["worst_day"],
             ATTR_BEST_DAY: best_worst["best_day"],
             "days_with_data_7day": rolling_7["days_with_data"],
+        }
+
+
+class RecentTrainTimesSensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor exposing a log of recent actual train times for this route.
+
+    Backed by the Network Rail Open Data movement feed rather than the
+    Darwin live departure board, so it reflects trains that have already
+    run rather than upcoming ones.
+    """
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Recent Train Times"
+        self._attr_unique_id = f"{entry.entry_id}_recent_train_times"
+        self._attr_icon = "mdi:history"
+
+    @staticmethod
+    def _journey_status(journey: dict[str, Any]) -> str:
+        """Return a human-readable status for a journey record."""
+        if journey.get("is_cancelled"):
+            return "Cancelled"
+
+        delay_minutes = journey.get("delay_minutes") or 0
+        if delay_minutes > 0:
+            return f"{delay_minutes} min late"
+
+        return "On Time"
+
+    @property
+    def native_value(self) -> str | None:
+        store = self.coordinator.journeys_store
+        if store is None:
+            return None
+
+        last_journey = store.get_last_journey()
+        if last_journey is None:
+            return "No recent journeys"
+
+        return self._journey_status(last_journey)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        store = self.coordinator.journeys_store
+        if store is None:
+            return {}
+
+        feed_manager = self.coordinator.feed_manager
+        today = dt_util.now().date().isoformat()
+
+        return {
+            ATTR_RECENT_JOURNEYS: store.get_recent_journeys(20),
+            ATTR_LAST_JOURNEY: store.get_last_journey(),
+            ATTR_JOURNEYS_RECORDED_TODAY: store.count_for_date(today),
+            ATTR_FEED_CONNECTED: feed_manager.connected if feed_manager else False,
+            ATTR_FEED_LAST_MESSAGE_AT: feed_manager.last_message_at if feed_manager else None,
         }

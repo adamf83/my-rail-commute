@@ -163,3 +163,47 @@ ATTR_REVERSE_AVG_DELAY_7D: Final = "reverse_avg_delay_7day"
 ATTR_REVERSE_WORST_DAY: Final = "reverse_worst_day"
 ATTR_REVERSE_BEST_DAY: Final = "reverse_best_day"
 ATTR_REVERSE_DAILY_BREAKDOWN: Final = "reverse_daily_breakdown"
+
+# Recent Train Times (Network Rail Open Data / NROD feed) configuration
+CONF_ENABLE_RECENT_TRAIN_TIMES: Final = "enable_recent_train_times"
+CONF_NROD_USERNAME: Final = "nrod_username"
+CONF_NROD_PASSWORD: Final = "nrod_password"
+
+DEFAULT_ENABLE_RECENT_TRAIN_TIMES: Final = False
+
+NROD_STOMP_HOST: Final = "publicdatafeeds.networkrail.co.uk"
+NROD_STOMP_SSL_PORT: Final = 61618
+NROD_STOMP_TOPIC: Final = "/topic/TRAIN_MVT_ALL_TOC"
+NROD_CORPUS_URL: Final = (
+    "https://publicdatafeeds.networkrail.co.uk/ntrod/SupportingFileAuthenticate?type=CORPUS"
+)
+
+NROD_RECONNECT_INITIAL_DELAY: Final = 5  # seconds
+NROD_RECONNECT_MAX_DELAY: Final = 300  # seconds
+NROD_RECONNECT_BACKOFF_FACTOR: Final = 2
+
+# Journey correlation
+JOURNEY_CORRELATION_MAX_MINUTES: Final = 240  # max plausible transit time to pair dep/arr
+JOURNEY_ARRIVAL_GRACE_MINUTES: Final = 5  # fallback window to accept a PASS instead of ARRIVAL
+JOURNEY_PENDING_TIMEOUT_MINUTES: Final = 360  # discard an unmatched departure after this long
+RECENT_JOURNEYS_RETENTION_DAYS: Final = 14
+RECENT_JOURNEYS_MAX_STORED: Final = 500
+RECENT_JOURNEYS_STORAGE_VERSION: Final = 1
+CORPUS_STORAGE_VERSION: Final = 1
+CORPUS_REFRESH_INTERVAL_DAYS: Final = 7
+
+# Sensor type
+SENSOR_RECENT_TRAIN_TIMES: Final = "recent_train_times"
+
+# Attributes — recent train times
+ATTR_RECENT_JOURNEYS: Final = "recent_journeys"
+ATTR_LAST_JOURNEY: Final = "last_journey"
+ATTR_JOURNEYS_RECORDED_TODAY: Final = "journeys_recorded_today"
+ATTR_FEED_CONNECTED: Final = "feed_connected"
+ATTR_FEED_LAST_MESSAGE_AT: Final = "feed_last_message_at"
+
+# NROD error messages
+ERROR_NROD_AUTH: Final = (
+    "Network Rail Open Data authentication failed. Please check your NROD username/password."
+)
+ERROR_NROD_UNAVAILABLE: Final = "Network Rail Open Data feed is currently unavailable."
