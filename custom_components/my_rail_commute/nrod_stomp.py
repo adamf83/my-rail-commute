@@ -244,6 +244,8 @@ class NrodFeedManager:
         self._reconnect_task: asyncio.Task | None = None
         self._reconnect_delay: float = NROD_RECONNECT_INITIAL_DELAY
         self._stopped = True
+        self._connect_lock = asyncio.Lock()
+        self._connect_generation = 0
 
         self.connected = False
         self.last_message_at: datetime | None = None
@@ -259,7 +261,11 @@ class NrodFeedManager:
         """Register a config entry's interest in a set of STANOX codes.
 
         Establishes the shared STOMP connection if this is the first
-        subscriber overall.
+        subscriber overall. Serialized by _connect_lock so that config
+        entries set up concurrently during HA bootstrap can't each race
+        into opening their own connection — NROD only allows a single
+        connection per account, so two simultaneous logins just knock
+        each other off the feed.
         """
         self._entry_callback[entry_id] = subscriber
         self._entry_stanox[entry_id] = set(stanox_codes)
@@ -268,8 +274,9 @@ class NrodFeedManager:
             if subscriber not in callbacks:
                 callbacks.append(subscriber)
 
-        if self._connection is None:
-            await self._async_connect()
+        async with self._connect_lock:
+            if self._connection is None:
+                await self._async_connect()
 
     async def async_release(self, entry_id: str) -> None:
         """Remove a config entry's subscription.
@@ -296,11 +303,22 @@ class NrodFeedManager:
         NROD endpoint can never block Home Assistant's bootstrap. A timeout
         is raised like any other connect failure, so callers (including the
         reconnect backoff loop) handle it the same way.
+
+        Cancelling the asyncio.wait_for on timeout does not stop the blocking
+        call running in the executor thread — Python threads can't be forced
+        to stop. That leftover thread can still finish the STOMP login after
+        we've already given up, and since NROD allows only one connection per
+        account, a stray late login is enough to knock a subsequent, genuine
+        attempt off the feed. _connect_generation lets an abandoned attempt
+        recognise itself when it finally finishes and disconnect instead of
+        being treated as live.
         """
         self._stopped = False
+        self._connect_generation += 1
+        generation = self._connect_generation
         try:
             await asyncio.wait_for(
-                self._hass.async_add_executor_job(self._connect_sync),
+                self._hass.async_add_executor_job(self._connect_sync, generation),
                 timeout=NROD_CONNECT_TIMEOUT,
             )
         except asyncio.TimeoutError as err:
@@ -310,7 +328,7 @@ class NrodFeedManager:
             )
             raise ConnectionError("Timed out connecting to NROD feed") from err
 
-    def _connect_sync(self) -> None:
+    def _connect_sync(self, generation: int) -> None:
         """Blocking STOMP connect/subscribe, run in an executor thread."""
         connection = stomp.Connection(
             host_and_ports=[(NROD_STOMP_HOST, NROD_STOMP_SSL_PORT)],
@@ -326,11 +344,24 @@ class NrodFeedManager:
             headers={"client-id": self._username},
         )
         connection.subscribe(destination=NROD_STOMP_TOPIC, id="my-rail-commute", ack="auto")
+
+        if generation != self._connect_generation:
+            _LOGGER.warning(
+                "NROD login completed after the caller had already given up on it; "
+                "disconnecting the stray session instead of leaving it open"
+            )
+            try:
+                connection.disconnect()
+            except Exception:  # noqa: BLE001 - best-effort cleanup of a third-party client
+                _LOGGER.debug("Error disconnecting abandoned NROD connection", exc_info=True)
+            return
+
         self._connection = connection
 
     async def _async_disconnect(self) -> None:
         """Tear down the shared STOMP connection."""
         self._stopped = True
+        self._connect_generation += 1
         if self._reconnect_task is not None:
             self._reconnect_task.cancel()
             self._reconnect_task = None
@@ -400,7 +431,10 @@ class NrodFeedManager:
             if self._stopped or not self.has_subscribers:
                 return
             try:
-                await self._async_connect()
+                async with self._connect_lock:
+                    if self.connected:
+                        return
+                    await self._async_connect()
                 return
             except Exception:  # noqa: BLE001 - third-party client raises assorted errors
                 _LOGGER.warning("NROD feed reconnect attempt failed", exc_info=True)

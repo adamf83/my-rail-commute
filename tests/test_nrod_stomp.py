@@ -186,7 +186,9 @@ async def test_acquire_connects_only_once_for_multiple_entries():
     """A second entry acquiring the feed must not open a second connection."""
     hass = _make_hass()
     manager = NrodFeedManager(hass, "user", "pass")
-    manager._connect_sync = MagicMock(side_effect=lambda: setattr(manager, "_connection", MagicMock()))
+    manager._connect_sync = MagicMock(
+        side_effect=lambda generation: setattr(manager, "_connection", MagicMock())
+    )
 
     callback_a = MagicMock()
     callback_b = MagicMock()
@@ -203,7 +205,9 @@ async def test_release_keeps_connection_while_other_entry_remains():
     """Releasing one of two entries must not tear down the shared connection."""
     hass = _make_hass()
     manager = NrodFeedManager(hass, "user", "pass")
-    manager._connect_sync = MagicMock(side_effect=lambda: setattr(manager, "_connection", MagicMock()))
+    manager._connect_sync = MagicMock(
+        side_effect=lambda generation: setattr(manager, "_connection", MagicMock())
+    )
     manager._disconnect_sync = MagicMock()
 
     await manager.async_acquire("entry_a", MagicMock(), {"87701"})
@@ -220,7 +224,9 @@ async def test_release_last_entry_disconnects():
     """Releasing the last entry tears down the shared connection."""
     hass = _make_hass()
     manager = NrodFeedManager(hass, "user", "pass")
-    manager._connect_sync = MagicMock(side_effect=lambda: setattr(manager, "_connection", MagicMock()))
+    manager._connect_sync = MagicMock(
+        side_effect=lambda generation: setattr(manager, "_connection", MagicMock())
+    )
     manager._disconnect_sync = MagicMock()
 
     await manager.async_acquire("entry_a", MagicMock(), {"87701"})
@@ -248,6 +254,30 @@ async def test_dispatch_routes_by_stanox_only_to_matching_subscriber():
     callback_a.assert_called_once()
     callback_b.assert_not_called()
     assert manager.last_message_at is not None
+
+
+def test_connect_sync_disconnects_stale_attempt():
+    """A connect that finishes after the caller gave up must tear itself down.
+
+    asyncio.wait_for can't stop the blocking connect running in the executor
+    thread, so a timed-out attempt keeps running in the background. If it
+    later succeeds, it must not be adopted as the live connection (NROD only
+    allows one login per account, so a stray leftover session would knock a
+    subsequent, genuine connection off the feed).
+    """
+    hass = _make_hass()
+    manager = NrodFeedManager(hass, "user", "pass")
+
+    stale_connection = MagicMock()
+    with patch(
+        "custom_components.my_rail_commute.nrod_stomp.stomp.Connection",
+        return_value=stale_connection,
+    ):
+        manager._connect_generation = 2  # a newer attempt has since started
+        manager._connect_sync(1)  # this attempt was generation 1 - now stale
+
+    stale_connection.disconnect.assert_called_once()
+    assert manager._connection is None
 
 
 @pytest.mark.asyncio
