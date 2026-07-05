@@ -3,32 +3,102 @@ from __future__ import annotations
 
 import logging
 
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import voluptuous as vol
 
 from .api import NationalRailAPI
 from .const import (
     CONF_DESTINATION,
+    CONF_ENABLE_RECENT_TRAIN_TIMES,
     CONF_NIGHT_UPDATES,
+    CONF_NROD_PASSWORD,
+    CONF_NROD_USERNAME,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
     CONF_TIME_WINDOW,
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
+from .corpus import CorpusError, CorpusReferenceStore
+from .journey_store import JourneyCorrelationEngine, RecentJourneysStore
+from .nrod_stomp import NrodFeedManager
 from .statistics import CommuteStatisticsStore
 
 SERVICE_GET_HISTORICAL_RAW_DATA = "get_historical_raw_data"
+SERVICE_GET_RECENT_JOURNEYS = "get_recent_journeys"
+
+FEED_DATA_KEY = f"{DOMAIN}_feed"
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
+
+
+async def _async_setup_recent_train_times(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    coordinator: NationalRailDataUpdateCoordinator,
+    config: dict,
+    session,
+) -> None:
+    """Set up the Recent Train Times feed subscription for a config entry.
+
+    Uses a single shared NrodFeedManager/CorpusReferenceStore across all
+    config entries (Network Rail's feed must not be opened more than once
+    per account). Any failure here is logged and swallowed so the entry's
+    core Darwin-based sensors keep working regardless of NROD feed health.
+    """
+    username = config.get(CONF_NROD_USERNAME)
+    password = config.get(CONF_NROD_PASSWORD)
+    if not username or not password:
+        _LOGGER.warning(
+            "Recent Train Times enabled for %s but NROD credentials are missing", entry.entry_id
+        )
+        return
+
+    try:
+        shared = hass.data.setdefault(FEED_DATA_KEY, {})
+        corpus_store: CorpusReferenceStore = shared.setdefault(
+            "corpus_store", CorpusReferenceStore(hass, session)
+        )
+        if "corpus_loaded" not in shared:
+            await corpus_store.async_load()
+            shared["corpus_loaded"] = True
+        await corpus_store.async_ensure_fresh(username, password)
+
+        feed_manager: NrodFeedManager = shared.setdefault(
+            "feed_manager", NrodFeedManager(hass, username, password)
+        )
+
+        journeys_store = RecentJourneysStore(hass, entry.entry_id)
+        await journeys_store.async_load()
+
+        engine = JourneyCorrelationEngine(
+            hass,
+            coordinator.origin,
+            coordinator.destination,
+            corpus_store.get_stanox_codes_for_crs(coordinator.origin),
+            corpus_store.get_stanox_codes_for_crs(coordinator.destination),
+            journeys_store,
+        )
+
+        await feed_manager.async_acquire(entry.entry_id, engine.handle_event, engine.watched_stanox)
+
+        coordinator.journeys_store = journeys_store
+        coordinator.feed_manager = feed_manager
+    except CorpusError as err:
+        _LOGGER.error(
+            "Recent Train Times unavailable for %s: %s", entry.entry_id, err
+        )
+    except Exception:  # noqa: BLE001 - never let feed setup break the core integration
+        _LOGGER.exception(
+            "Unexpected error setting up Recent Train Times for %s", entry.entry_id
+        )
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -71,6 +141,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await stats_store.async_load()
         coordinator.stats_store = stats_store
 
+        # Set up Recent Train Times (Network Rail Open Data feed), if enabled.
+        # This is best-effort: any failure here must never prevent the core
+        # Darwin-based sensors from working.
+        if config.get(CONF_ENABLE_RECENT_TRAIN_TIMES) and config.get(CONF_DESTINATION):
+            await _async_setup_recent_train_times(hass, entry, coordinator, config, session)
+
         # Fetch initial data
         _LOGGER.debug("Fetching initial data for %s -> %s", config.get(CONF_ORIGIN), config.get(CONF_DESTINATION))
         await coordinator.async_config_entry_first_refresh()
@@ -104,6 +180,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 supports_response=SupportsResponse.ONLY,
             )
 
+        if not hass.services.has_service(DOMAIN, SERVICE_GET_RECENT_JOURNEYS):
+            async def _handle_get_recent_journeys(call: ServiceCall) -> dict:
+                entry_id = call.data["entry_id"]
+                if entry_id not in hass.data.get(DOMAIN, {}):
+                    raise ServiceValidationError(
+                        f"No commute found with entry_id: {entry_id}"
+                    )
+                target_coordinator = hass.data[DOMAIN][entry_id]
+                if target_coordinator.journeys_store is None:
+                    raise ServiceValidationError(
+                        f"Recent Train Times is not enabled for entry_id: {entry_id}"
+                    )
+                limit = call.data.get("limit", 20)
+                return {"journeys": target_coordinator.journeys_store.get_recent_journeys(limit)}
+
+            hass.services.async_register(
+                DOMAIN,
+                SERVICE_GET_RECENT_JOURNEYS,
+                _handle_get_recent_journeys,
+                schema=vol.Schema(
+                    {
+                        vol.Required("entry_id"): cv.string,
+                        vol.Optional("limit", default=20): vol.All(
+                            vol.Coerce(int), vol.Range(min=1, max=500)
+                        ),
+                    }
+                ),
+                supports_response=SupportsResponse.ONLY,
+            )
+
         _LOGGER.debug("My Rail Commute integration setup complete")
 
         return True
@@ -131,11 +237,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = hass.data[DOMAIN][entry.entry_id]
         await coordinator.api.close()
 
+        # Release this entry's Recent Train Times feed subscription, if any.
+        # Tear down the shared feed/CORPUS resources once no entry uses them.
+        if coordinator.feed_manager is not None:
+            await coordinator.feed_manager.async_release(entry.entry_id)
+            if not coordinator.feed_manager.has_subscribers:
+                hass.data.pop(FEED_DATA_KEY, None)
+
         hass.data[DOMAIN].pop(entry.entry_id)
 
-        # Remove domain-wide service when the last entry is unloaded
+        # Remove domain-wide services when the last entry is unloaded
         if not hass.data[DOMAIN]:
             hass.services.async_remove(DOMAIN, SERVICE_GET_HISTORICAL_RAW_DATA)
+            hass.services.async_remove(DOMAIN, SERVICE_GET_RECENT_JOURNEYS)
 
     return unload_ok
 

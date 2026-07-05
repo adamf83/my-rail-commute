@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 import logging
 import re
-from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -16,7 +16,6 @@ from .const import (
     CONF_ALL_DEPARTURES,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
-    CONF_DISRUPTION_MULTIPLE_COUNT,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
     CONF_MAJOR_DELAY_THRESHOLD,
@@ -130,6 +129,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Historical stats recorder — attached externally by async_setup_entry
         self.stats_store: Any | None = None
+
+        # Recent Train Times (Network Rail Open Data feed) — attached
+        # externally by async_setup_entry only when the feature is enabled
+        self.journeys_store: Any | None = None
+        self.feed_manager: Any | None = None
 
         # Initialize with off-peak interval
         update_interval = self._get_update_interval()
