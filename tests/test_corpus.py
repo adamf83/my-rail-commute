@@ -1,6 +1,8 @@
 """Tests for the CORPUS reference data store."""
 from __future__ import annotations
 
+import gzip
+import json
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,12 +27,16 @@ SAMPLE_CORPUS = {
 
 
 class _FakeResponse:
-    def __init__(self, status: int, json_data=None):
+    def __init__(self, status: int, json_data=None, gzip_body: bool = False):
         self.status = status
-        self._json_data = json_data
+        if json_data is None:
+            self._body = b""
+        else:
+            body = json.dumps(json_data).encode("utf-8")
+            self._body = gzip.compress(body) if gzip_body else body
 
-    async def json(self, content_type=None):
-        return self._json_data
+    async def read(self):
+        return self._body
 
     async def __aenter__(self):
         return self
@@ -94,6 +100,31 @@ async def test_async_ensure_fresh_fetches_when_no_cache():
 
     assert store.get_stanox_codes_for_crs("PAD") == {"87701", "87702"}
     store._store.async_save.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_ensure_fresh_fetches_gzipped_response_without_content_encoding_header():
+    """NROD sometimes serves gzip bytes without a Content-Encoding header; we must gunzip it."""
+    store, session = _make_store(load_return=None)
+    await store.async_load()
+    session.get = MagicMock(return_value=_FakeResponse(200, SAMPLE_CORPUS, gzip_body=True))
+
+    await store.async_ensure_fresh("user", "pass")
+
+    assert store.get_stanox_codes_for_crs("PAD") == {"87701", "87702"}
+
+
+@pytest.mark.asyncio
+async def test_async_ensure_fresh_invalid_body_raises_unavailable():
+    """A response body that is neither valid JSON nor gzip raises CorpusUnavailableError."""
+    store, session = _make_store(load_return=None)
+    await store.async_load()
+    response = _FakeResponse(200)
+    response._body = b"\x8b not json or gzip"
+    session.get = MagicMock(return_value=response)
+
+    with pytest.raises(CorpusUnavailableError):
+        await store.async_ensure_fresh("user", "pass")
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,8 @@
 """CORPUS reference data (CRS <-> STANOX resolution) for the Network Rail Open Data feed."""
 from __future__ import annotations
 
+import gzip
+import json
 import logging
 from typing import Any
 
@@ -146,15 +148,30 @@ class CorpusReferenceStore:
                     raise CorpusUnavailableError(
                         f"CORPUS download failed with status {response.status}"
                     )
-                data = await response.json(content_type=None)
+                raw = await response.read()
         except CorpusError:
             raise
         except aiohttp.ClientError as err:
             raise CorpusUnavailableError(f"Network error fetching CORPUS data: {err}") from err
-        except (ValueError, TypeError) as err:
+
+        try:
+            data = json.loads(self._maybe_gunzip(raw))
+        except (gzip.BadGzipFile, UnicodeDecodeError, ValueError) as err:
             raise CorpusUnavailableError(f"Invalid CORPUS response: {err}") from err
 
         return self._parse_corpus(data)
+
+    @staticmethod
+    def _maybe_gunzip(raw: bytes) -> bytes:
+        """Decompress the response body if it's gzip, regardless of headers.
+
+        NROD's CORPUS endpoint serves gzip-compressed content but doesn't
+        always set a Content-Encoding header, so aiohttp's automatic
+        decompression can't be relied on.
+        """
+        if raw[:2] == b"\x1f\x8b":
+            return gzip.decompress(raw)
+        return raw
 
     @staticmethod
     def _parse_corpus(data: dict[str, Any]) -> tuple[dict[str, list[str]], dict[str, str]]:
