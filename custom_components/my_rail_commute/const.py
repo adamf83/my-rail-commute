@@ -178,6 +178,15 @@ NROD_CORPUS_URL: Final = (
     "https://publicdatafeeds.networkrail.co.uk/ntrod/SupportingFileAuthenticate?type=CORPUS"
 )
 
+# Bounds the STOMP socket connect (stomp.py's own socket timeout, which
+# defaults to None/blocking) so an unreachable or silently-dropping NROD
+# endpoint can never hang forever.
+NROD_CONNECT_SOCKET_TIMEOUT: Final = 15  # seconds
+# Bounds the overall connect+handshake executor job. Kept above the socket
+# timeout to leave room for the post-connect STOMP handshake wait, which
+# stomp.py performs with no timeout of its own.
+NROD_CONNECT_TIMEOUT: Final = 30  # seconds
+
 NROD_RECONNECT_INITIAL_DELAY: Final = 5  # seconds
 NROD_RECONNECT_MAX_DELAY: Final = 300  # seconds
 NROD_RECONNECT_BACKOFF_FACTOR: Final = 2

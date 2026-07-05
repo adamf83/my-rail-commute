@@ -21,6 +21,8 @@ from homeassistant.util import dt as dt_util
 import stomp
 
 from .const import (
+    NROD_CONNECT_SOCKET_TIMEOUT,
+    NROD_CONNECT_TIMEOUT,
     NROD_RECONNECT_BACKOFF_FACTOR,
     NROD_RECONNECT_INITIAL_DELAY,
     NROD_RECONNECT_MAX_DELAY,
@@ -288,15 +290,32 @@ class NrodFeedManager:
             await self._async_disconnect()
 
     async def _async_connect(self) -> None:
-        """Establish the shared STOMP connection (off the event loop)."""
+        """Establish the shared STOMP connection (off the event loop).
+
+        Bounded by NROD_CONNECT_TIMEOUT so an unreachable or slow-to-respond
+        NROD endpoint can never block Home Assistant's bootstrap. A timeout
+        is raised like any other connect failure, so callers (including the
+        reconnect backoff loop) handle it the same way.
+        """
         self._stopped = False
-        await self._hass.async_add_executor_job(self._connect_sync)
+        try:
+            await asyncio.wait_for(
+                self._hass.async_add_executor_job(self._connect_sync),
+                timeout=NROD_CONNECT_TIMEOUT,
+            )
+        except asyncio.TimeoutError as err:
+            _LOGGER.warning(
+                "Timed out connecting to Network Rail Open Data feed after %s seconds",
+                NROD_CONNECT_TIMEOUT,
+            )
+            raise ConnectionError("Timed out connecting to NROD feed") from err
 
     def _connect_sync(self) -> None:
         """Blocking STOMP connect/subscribe, run in an executor thread."""
         connection = stomp.Connection(
             host_and_ports=[(NROD_STOMP_HOST, NROD_STOMP_SSL_PORT)],
             keepalive=True,
+            timeout=NROD_CONNECT_SOCKET_TIMEOUT,
         )
         connection.set_ssl(for_hosts=[(NROD_STOMP_HOST, NROD_STOMP_SSL_PORT)])
         connection.set_listener("nrod", _FeedListener(self))
