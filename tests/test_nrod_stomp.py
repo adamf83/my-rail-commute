@@ -169,6 +169,15 @@ class TestParseStompFrame:
         assert events[1].train_id == "1B45"
 
 
+def test_stomp_verbose_logging_enabled():
+    """stomp.py's internal exc_info logging must stay on so the real
+    connect-failure reason (not just a bare ConnectFailedException) reaches
+    the HA log the next time a connect attempt fails."""
+    import stomp.logging as stomp_logging
+
+    assert stomp_logging.verbose is True
+
+
 def _make_hass():
     """Return a hass mock whose executor/loop hooks run callables inline."""
     hass = MagicMock()
