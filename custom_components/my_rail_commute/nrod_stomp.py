@@ -353,7 +353,19 @@ class NrodFeedManager:
             wait=True,
             headers={"client-id": self._username},
         )
-        connection.subscribe(destination=NROD_STOMP_TOPIC, id="my-rail-commute", ack="auto")
+        # NROD recommends a durable subscription, which keeps messages published
+        # during a disconnect queued for 5 minutes rather than dropping them. On
+        # the ActiveMQ broker NROD runs, durability needs client-id (set above on
+        # CONNECT) paired with activemq.subscriptionName here - the "id" header
+        # alone only scopes acking/unsubscribing within this session and isn't
+        # enough on its own. The subscription name must stay stable across
+        # reconnects for the broker to recognise it as the same durable sub.
+        connection.subscribe(
+            destination=NROD_STOMP_TOPIC,
+            id="my-rail-commute",
+            ack="auto",
+            headers={"activemq.subscriptionName": self._username},
+        )
 
         if generation != self._connect_generation:
             _LOGGER.warning(
