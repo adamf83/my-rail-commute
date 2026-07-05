@@ -334,6 +334,16 @@ class NrodFeedManager:
             host_and_ports=[(NROD_STOMP_HOST, NROD_STOMP_SSL_PORT)],
             keepalive=True,
             timeout=NROD_CONNECT_SOCKET_TIMEOUT,
+            # stomp.py retries failed TCP connects internally (default: 3
+            # attempts). Left at its default, that inner loop can take longer
+            # than NROD_CONNECT_TIMEOUT to give up, so our own asyncio.wait_for
+            # abandons the executor thread while stomp.py is still retrying in
+            # the background - leaving a stale thread that keeps hammering
+            # NROD alongside the fresh attempt our outer reconnect loop then
+            # starts. We already own retry/backoff at the manager level (with
+            # generation tracking to disown stale attempts), so make stomp.py
+            # try exactly once and bail out to us instead of retrying itself.
+            reconnect_attempts_max=1,
         )
         connection.set_ssl(for_hosts=[(NROD_STOMP_HOST, NROD_STOMP_SSL_PORT)])
         connection.set_listener("nrod", _FeedListener(self))
