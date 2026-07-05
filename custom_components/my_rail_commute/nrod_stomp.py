@@ -19,6 +19,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 import stomp
+import stomp.logging as stomp_logging
 
 from .const import (
     NROD_CONNECT_SOCKET_TIMEOUT,
@@ -32,6 +33,14 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# stomp.py swallows the real connect-failure reason (DNS failure, refused
+# connection, TLS handshake error, timeout) inside its own retry loop and
+# raises a bare, message-less ConnectFailedException with no exception
+# chaining. Its internal warning log line does carry the real exception, but
+# only attaches it (exc_info) when this flag is set - so without it, "could
+# not connect to host ..." is logged with the traceback stripped.
+stomp_logging.verbose = True
 
 EVENT_ARRIVAL = "ARRIVAL"
 EVENT_DEPARTURE = "DEPARTURE"
