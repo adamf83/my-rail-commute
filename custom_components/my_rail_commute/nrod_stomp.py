@@ -334,6 +334,16 @@ class NrodFeedManager:
             host_and_ports=[(NROD_STOMP_HOST, NROD_STOMP_SSL_PORT)],
             keepalive=True,
             timeout=NROD_CONNECT_SOCKET_TIMEOUT,
+            # stomp.py retries failed TCP connects internally (default: 3
+            # attempts). Left at its default, that inner loop can take longer
+            # than NROD_CONNECT_TIMEOUT to give up, so our own asyncio.wait_for
+            # abandons the executor thread while stomp.py is still retrying in
+            # the background - leaving a stale thread that keeps hammering
+            # NROD alongside the fresh attempt our outer reconnect loop then
+            # starts. We already own retry/backoff at the manager level (with
+            # generation tracking to disown stale attempts), so make stomp.py
+            # try exactly once and bail out to us instead of retrying itself.
+            reconnect_attempts_max=1,
         )
         connection.set_ssl(for_hosts=[(NROD_STOMP_HOST, NROD_STOMP_SSL_PORT)])
         connection.set_listener("nrod", _FeedListener(self))
@@ -343,7 +353,19 @@ class NrodFeedManager:
             wait=True,
             headers={"client-id": self._username},
         )
-        connection.subscribe(destination=NROD_STOMP_TOPIC, id="my-rail-commute", ack="auto")
+        # NROD recommends a durable subscription, which keeps messages published
+        # during a disconnect queued for 5 minutes rather than dropping them. On
+        # the ActiveMQ broker NROD runs, durability needs client-id (set above on
+        # CONNECT) paired with activemq.subscriptionName here - the "id" header
+        # alone only scopes acking/unsubscribing within this session and isn't
+        # enough on its own. The subscription name must stay stable across
+        # reconnects for the broker to recognise it as the same durable sub.
+        connection.subscribe(
+            destination=NROD_STOMP_TOPIC,
+            id="my-rail-commute",
+            ack="auto",
+            headers={"activemq.subscriptionName": self._username},
+        )
 
         if generation != self._connect_generation:
             _LOGGER.warning(
