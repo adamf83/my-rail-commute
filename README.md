@@ -15,7 +15,6 @@ A custom Home Assistant integration that tracks regular commutes using National 
 - **Multi-Route Support**: Configure multiple commutes (e.g., morning and evening journeys)
 - **All Departures Mode**: Optionally track all departures from an origin station with no fixed destination
 - **Historical Performance Tracking**: Persistent daily statistics with rolling 7-day and 30-day on-time percentages and average delays
-- **Recent Train Times**: Optional log of actual departure/arrival times for recently-run trains, sourced from Network Rail's real-time movement feed — see how delayed your train actually was, not just its live-board estimate
 - **UI Configuration**: Easy setup through Home Assistant's config flow interface
 - **HACS Compatible**: Simple installation via Home Assistant Community Store
 - **Custom Lovelace Card**: Beautiful, dedicated [dashboard card](https://github.com/adamf83/lovelace-my-rail-commute-card) for displaying train information
@@ -145,20 +144,6 @@ The integration creates multiple sensors for each configured commute:
   - `days_with_data_7day`: Days with recorded data in the 7-day window
 - **Use Case**: Understand whether your route is getting better or worse, and identify your worst days
 
-### 8. Recent Train Times Sensor (optional)
-- **Entity ID**: `sensor.{commute_name}_recent_train_times`
-- **Requires**: Recent Train Times enabled for this commute (see [Prerequisites](#network-rail-open-data-account-optional))
-- **State**: Status of the most recently-run journey (e.g., "On Time", "7 min late", "Cancelled", or "No recent journeys")
-- **Attributes**:
-  - `recent_journeys`: The last 20 recorded journeys, newest first, each with scheduled/actual departure and arrival times, platform, TOC, delay minutes, and cancellation details
-  - `last_journey`: The most recent journey record
-  - `journeys_recorded_today`: Count of journeys recorded so far today
-  - `feed_connected`: Whether the Network Rail Open Data feed is currently connected
-  - `feed_last_message_at`: Timestamp of the last message received from the feed
-- **Use Case**: Check whether a train you just missed (or are about to catch) has historically been on time — genuinely "recent" data, unlike the live departure board which stops showing a service a couple of minutes after it departs
-
-This sensor is backed by a different data source (Network Rail's real-time movement feed) than the rest of the integration (Darwin live departure boards), so it also adds a diagnostic **Recent Train Times Feed Connected** binary sensor to help confirm the feed is receiving data.
-
 ## Actions
 
 The integration provides several actions (callable via **Developer Tools → Actions** or automations):
@@ -183,16 +168,6 @@ data:
 
 The response includes an array of daily records with `date`, `on_time_count`, `delayed_count`, `cancelled_count`, `total_observations`, and `total_delay_minutes`.
 
-### Get Recent Journeys
-Retrieve the log of recent actual train times (Recent Train Times feature) for a commute, newest first. Requires Recent Train Times to be enabled for that commute.
-
-```yaml
-action: my_rail_commute.get_recent_journeys
-data:
-  entry_id: "your_config_entry_id"
-  limit: 20
-```
-
 ## Prerequisites
 
 ### National Rail API Key
@@ -214,19 +189,6 @@ You'll need the 3-letter CRS (Computer Reservation System) codes for your statio
 - **BHM** = Birmingham New Street
 
 Find your station codes at [National Rail Enquiries](https://www.nationalrail.co.uk/stations/).
-
-### Network Rail Open Data Account (optional)
-
-Only needed if you want to enable the **Recent Train Times** feature. This is a separate, free account from the Rail Data Marketplace key above:
-
-1. Visit [Network Rail Open Data Feeds](https://publicdatafeeds.networkrail.co.uk/)
-2. Register for a free account
-3. Request access to the **TRAIN_MVT_ALL_TOC** real-time train movement feed
-4. Use your account username/password when enabling Recent Train Times in the integration's config flow or options
-
-These credentials are shared across all your commutes automatically, the same way your Rail Data Marketplace API key is — you only need to enter them once.
-
-**Note**: Network Rail's feed only supports a single active connection per account, so this integration always shares one connection across every commute you have Recent Train Times enabled for. Don't run another tool against the same account's TRAIN_MVT_ALL_TOC feed at the same time.
 
 ## Installation
 
@@ -276,7 +238,6 @@ These credentials are shared across all your commutes automatically, the same wa
 - **Major Delays Threshold**: Minutes of delay to trigger "Major Delays" status for any train (1-60 minutes, default: 10)
 - **Minor Delays Threshold**: Minutes of delay to trigger "Minor Delays" status for any train (1-60 minutes, default: 3)
 - **Enable Night-Time Updates**: Keep polling during night hours (23:00-05:00)
-- **Enable Recent Train Times**: Optional; requires a fixed destination (not available with "All Departures"). If enabled and no Network Rail Open Data credentials are on file yet, you'll be asked for them in an extra step next
 
 **Note on Status Hierarchy**: The Status sensor uses a 5-level hierarchy based on the maximum delay across all trains:
 - **"Normal"**: All trains on time (or below minor threshold)
@@ -299,7 +260,6 @@ All three delay thresholds are fully customizable. Validation ensures the hierar
    - Major Delays Threshold
    - Minor Delays Threshold
    - Night-time updates
-   - Recent Train Times (and Network Rail Open Data credentials, if not already set on another commute)
 
 **Note**: When you update your configuration, any old threshold settings will automatically migrate to the new format.
 
@@ -588,15 +548,6 @@ The integration includes automatic retry with exponential backoff. If you see ra
 - Increase time windows between updates
 - Disable night-time updates if not needed
 
-### Recent Train Times Feed Issues
-
-- Check the **Recent Train Times Feed Connected** binary sensor — if it's off, the feed isn't currently connected
-- Double-check your Network Rail Open Data username and password are correct (these are separate from your Rail Data Marketplace API key)
-- Confirm your NROD account has been granted access to the **TRAIN_MVT_ALL_TOC** feed
-- Only one connection per NROD account is allowed at a time — if you run another tool or a second Home Assistant instance against the same account, one of them will be disconnected
-- Recent Train Times will show no data until at least one train has actually run on your route since the feed connected; it does not backfill history from before it started
-- If NROD credentials are wrong or the feed is unavailable, this only disables Recent Train Times — your other sensors keep working normally
-
 ## API Information
 
 This integration uses the National Rail Darwin Live Departure Boards API:
@@ -606,13 +557,6 @@ This integration uses the National Rail Darwin Live Departure Boards API:
 - **Format**: REST/JSON
 - **Rate Limits**: Fair usage policy (usually no issues with default settings)
 - **Terms**: [Rail Data Marketplace Terms](https://raildata.org.uk/terms)
-
-The optional Recent Train Times feature additionally uses Network Rail's Open Data real-time train movement feed:
-
-- **Provider**: Network Rail
-- **Feed**: TRAIN_MVT_ALL_TOC, delivered over STOMP
-- **Format**: Push-based JSON messages, not a request/response API
-- **Terms**: [Network Rail Open Data Feeds](https://publicdatafeeds.networkrail.co.uk/) — see the [Open Rail Data wiki](https://wiki.openraildata.com/) for feed documentation
 
 ## Contributing
 
@@ -632,7 +576,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - National Rail and Rail Delivery Group for providing the Darwin API
 - Rail Data Marketplace for API access
-- Network Rail for the Open Data real-time train movement feed
 - Home Assistant community for integration development resources
 
 ## Disclaimer
@@ -640,8 +583,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 This is an unofficial integration and is not affiliated with, endorsed by, or connected to National Rail, Network Rail, Rail Delivery Group, or any train operating company. Use at your own risk.
 
 Train times and information are provided by National Rail's systems. While we strive for accuracy, always verify critical journey information through official channels.
-
-Recent Train Times data depends on the completeness and timeliness of each train operating company's reporting into Network Rail's movement feed — occasional missing or delayed messages are a known characteristic of the feed itself, not a bug in this integration.
 
 ---
 

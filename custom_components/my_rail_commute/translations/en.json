@@ -28,16 +28,7 @@
           "major_delay_threshold": "Major Delays Threshold (minutes)",
           "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates",
-          "departed_train_grace_period": "Departed Train Grace Period (minutes)",
-          "enable_recent_train_times": "Enable Recent Train Times (requires a Network Rail Open Data account)"
-        }
-      },
-      "nrod_credentials": {
-        "title": "Network Rail Open Data Account",
-        "description": "Recent Train Times uses Network Rail's real-time train movement feed to show actual departure/arrival times. Register for a free account at {signup_url}, then enter your credentials below.\n\nNote: If you already have Recent Train Times enabled on another commute, this step will be skipped automatically.",
-        "data": {
-          "nrod_username": "NROD Username",
-          "nrod_password": "NROD Password"
+          "departed_train_grace_period": "Departed Train Grace Period (minutes)"
         }
       },
       "return_journey": {
@@ -54,8 +45,6 @@
       "invalid_station": "Invalid station code. Please use a valid 3-letter CRS code.",
       "same_station": "Origin and destination stations must be different.",
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
-      "recent_train_times_needs_destination": "Recent Train Times requires a fixed destination station and cannot be used with 'All Departures'.",
-      "invalid_nrod_auth": "Authentication failed. Please check your Network Rail Open Data username and password.",
       "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {
@@ -74,17 +63,12 @@
           "major_delay_threshold": "Major Delays Threshold (minutes)",
           "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates",
-          "departed_train_grace_period": "Departed Train Grace Period (minutes)",
-          "enable_recent_train_times": "Enable Recent Train Times (requires a Network Rail Open Data account)",
-          "nrod_username": "NROD Username",
-          "nrod_password": "NROD Password (leave blank to keep the current one)"
+          "departed_train_grace_period": "Departed Train Grace Period (minutes)"
         }
       }
     },
     "error": {
-      "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
-      "recent_train_times_needs_destination": "Recent Train Times requires a fixed destination station and cannot be used with 'All Departures'.",
-      "nrod_credentials_required": "Enabling Recent Train Times requires both a Network Rail Open Data username and password."
+      "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute."
     }
   },
   "entity": {

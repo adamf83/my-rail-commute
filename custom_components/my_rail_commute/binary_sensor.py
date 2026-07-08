@@ -4,14 +4,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
-    BinarySensorEntity,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -19,7 +15,6 @@ from .const import (
     ATTR_CANCELLED_COUNT,
     ATTR_DELAYED_COUNT,
     ATTR_DISRUPTION_REASONS,
-    ATTR_FEED_LAST_MESSAGE_AT,
     ATTR_MAX_DELAY,
     CONF_COMMUTE_NAME,
     DOMAIN,
@@ -47,10 +42,6 @@ async def async_setup_entry(
     entities: list[BinarySensorEntity] = [
         DisruptionSensor(coordinator, entry),
     ]
-
-    # Recent Train Times feed diagnostic, only when enabled
-    if coordinator.feed_manager is not None:
-        entities.append(NrodFeedConnectedBinarySensor(coordinator, entry))
 
     _LOGGER.debug(
         "Setting up binary sensor entities for %s -> %s",
@@ -184,44 +175,3 @@ class DisruptionSensor(NationalRailCommuteBinarySensor):
         if self.is_on:
             return "mdi:alert-circle"
         return "mdi:check-circle"
-
-
-class NrodFeedConnectedBinarySensor(NationalRailCommuteBinarySensor):
-    """Diagnostic binary sensor for the Network Rail Open Data feed connection.
-
-    Lets users tell whether Recent Train Times is actually receiving data,
-    since the feed connection is independent of the Darwin-based polling
-    that powers the rest of the integration.
-    """
-
-    def __init__(
-        self,
-        coordinator: NationalRailDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize the feed connectivity sensor.
-
-        Args:
-            coordinator: Data coordinator
-            entry: Config entry
-        """
-        super().__init__(coordinator, entry)
-
-        self._attr_name = "Recent Train Times Feed Connected"
-        self._attr_unique_id = f"{entry.entry_id}_nrod_feed_connected"
-        self._attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if the shared NROD STOMP feed is connected."""
-        feed_manager = self.coordinator.feed_manager
-        return feed_manager is not None and feed_manager.connected
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the timestamp of the last message received from the feed."""
-        feed_manager = self.coordinator.feed_manager
-        return {
-            ATTR_FEED_LAST_MESSAGE_AT: feed_manager.last_message_at if feed_manager else None,
-        }

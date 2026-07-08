@@ -130,11 +130,6 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         # Historical stats recorder — attached externally by async_setup_entry
         self.stats_store: Any | None = None
 
-        # Recent Train Times (Network Rail Open Data feed) — attached
-        # externally by async_setup_entry only when the feature is enabled
-        self.journeys_store: Any | None = None
-        self.feed_manager: Any | None = None
-
         # Initialize with off-peak interval
         update_interval = self._get_update_interval()
 
