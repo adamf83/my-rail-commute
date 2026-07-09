@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, Platform
@@ -155,24 +156,24 @@ async def async_cleanup_stale_entities(hass: HomeAssistant, entry: ConfigEntry) 
     # Get entity registry
     entity_reg = er.async_get(hass)
 
+    # Matches both the single-leg shape ({entry_id}_train_{n}) and the
+    # multi-leg shape ({entry_id}_leg{leg}_train_{n})
+    leg_train_re = re.compile(rf"^{re.escape(entry.entry_id)}_(?:leg\d+_)?train_(\d+)$")
+
     # Find all train entities for this config entry
     entities_to_remove = []
     for entity in er.async_entries_for_config_entry(entity_reg, entry.entry_id):
         # Check if this is a train entity with a number > new_num_services
-        if entity.unique_id.startswith(f"{entry.entry_id}_train_"):
-            # Extract train number from unique_id (format: {entry_id}_train_{number})
-            try:
-                train_number = int(entity.unique_id.split("_train_")[-1])
-                if train_number > new_num_services:
-                    entities_to_remove.append((entity.entity_id, train_number))
-                    _LOGGER.debug(
-                        "Found stale train entity: %s (train_%s)",
-                        entity.entity_id,
-                        train_number,
-                    )
-            except (ValueError, IndexError):
-                # Skip if we can't parse the train number
-                continue
+        match = leg_train_re.match(entity.unique_id)
+        if match:
+            train_number = int(match.group(1))
+            if train_number > new_num_services:
+                entities_to_remove.append((entity.entity_id, train_number))
+                _LOGGER.debug(
+                    "Found stale train entity: %s (train_%s)",
+                    entity.entity_id,
+                    train_number,
+                )
 
     # Remove stale entities
     for entity_id, train_number in entities_to_remove:

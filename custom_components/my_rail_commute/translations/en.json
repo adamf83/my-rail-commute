@@ -17,6 +17,14 @@
           "destination": "Destination Station (CRS Code) — leave blank if 'All Departures' is enabled"
         }
       },
+      "add_leg": {
+        "title": "Add a Connecting Leg",
+        "description": "Your journey so far: {itinerary}\n\nDoes this journey require a change of train? Add a connecting leg departing from {destination}, or continue if your itinerary is complete.",
+        "data": {
+          "add_leg": "Add a connecting leg",
+          "leg_destination": "Next Destination Station (CRS Code)"
+        }
+      },
       "settings": {
         "title": "Commute Settings",
         "description": "Configure settings for your commute from {origin} to {destination}.",

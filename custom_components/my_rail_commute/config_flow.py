@@ -22,6 +22,7 @@ from .api import (
     NationalRailAPIError,
 )
 from .const import (
+    CONF_ADD_LEG,
     CONF_ADD_RETURN_JOURNEY,
     CONF_ALL_DEPARTURES,
     CONF_COMMUTE_NAME,
@@ -29,6 +30,8 @@ from .const import (
     CONF_DESTINATION,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
+    CONF_LEG_DESTINATION,
+    CONF_LEGS,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
@@ -56,6 +59,7 @@ from .const import (
     MIN_NUM_SERVICES,
     MIN_TIME_WINDOW,
 )
+from .coordinator import build_route_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -194,6 +198,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._minor_delay_threshold: int | None = None
         self._departed_train_grace_period: int | None = None
         self._nearby_stations: list[tuple[float, dict]] | None = None
+        self._legs: list[dict[str, Any]] = []
+        self._leg_names: list[dict[str, str]] = []
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -321,6 +327,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._origin_name = origin_name
                     self._destination_name = None
                     self._all_departures = True
+                    self._legs = [{"origin": self._origin, "destination": None}]
+                    self._leg_names = [
+                        {"origin_name": self._origin_name, "destination_name": None}
+                    ]
                 else:
                     destination = user_input.get(CONF_DESTINATION, "").strip()
                     if not destination:
@@ -337,8 +347,18 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._origin_name = station_info["origin_name"]
                     self._destination_name = station_info["destination_name"]
                     self._all_departures = False
+                    self._legs = [{"origin": self._origin, "destination": self._destination}]
+                    self._leg_names = [
+                        {
+                            "origin_name": self._origin_name,
+                            "destination_name": self._destination_name,
+                        }
+                    ]
 
-                return await self.async_step_settings()
+                if self._all_departures:
+                    return await self.async_step_settings()
+
+                return await self.async_step_add_leg()
 
             except ValueError as err:
                 if "destination_required" not in str(err):
@@ -386,6 +406,85 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_add_leg(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Offer to add a connecting leg (a change of train) to the journey.
+
+        Loops until the user declines: each accepted leg's origin is the
+        previous leg's destination (where you alight and change trains).
+
+        Args:
+            user_input: User input data
+
+        Returns:
+            FlowResult for the next add_leg prompt or the settings step
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            if not user_input.get(CONF_ADD_LEG, False):
+                return await self.async_step_settings()
+
+            try:
+                new_destination = user_input.get(CONF_LEG_DESTINATION, "").strip()
+                if not new_destination:
+                    errors[CONF_LEG_DESTINATION] = "required"
+                    raise ValueError("destination_required")
+
+                station_info = await validate_stations(
+                    self.hass, self._api_key, self._destination, new_destination
+                )
+
+                new_destination = new_destination.upper()
+                self._legs.append(
+                    {"origin": self._destination, "destination": new_destination}
+                )
+                self._leg_names.append(
+                    {
+                        "origin_name": station_info["origin_name"],
+                        "destination_name": station_info["destination_name"],
+                    }
+                )
+                self._destination = new_destination
+                self._destination_name = station_info["destination_name"]
+
+                # Loop back to offer another leg
+                return await self.async_step_add_leg()
+
+            except ValueError as err:
+                if "destination_required" not in str(err):
+                    errors["base"] = "same_station"
+            except InvalidStationError:
+                errors["base"] = "invalid_station"
+            except AuthenticationError:
+                errors["base"] = "invalid_auth"
+            except NationalRailAPIError:
+                errors["base"] = "cannot_connect"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
+
+        itinerary = " → ".join(
+            [self._leg_names[0]["origin_name"]]
+            + [n["destination_name"] for n in self._leg_names]
+        )
+
+        return self.async_show_form(
+            step_id="add_leg",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_ADD_LEG, default=False): selector.BooleanSelector(),
+                    vol.Optional(CONF_LEG_DESTINATION): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "itinerary": itinerary,
+                "destination": self._destination_name,
+            },
+        )
+
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -428,12 +527,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
                 )
 
-                # Set unique ID based on route (all-departures gets a distinct suffix)
-                if self._all_departures:
-                    unique_id = f"{self._origin}_all_departures"
-                else:
-                    unique_id = f"{self._origin}_{self._destination}"
-                await self.async_set_unique_id(unique_id)
+                # Set unique ID based on the full route chain (all-departures
+                # gets a distinct suffix; single-leg routes match the historical format)
+                await self.async_set_unique_id(build_route_id(self._legs))
                 self._abort_if_unique_id_configured()
 
                 # Skip return-journey step when showing all departures
@@ -553,7 +649,13 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Returns:
             FlowResult for creating entry
         """
-        reverse_unique_id = f"{self._destination}_{self._origin}"
+        # Reverse the whole leg sequence: swap origin/destination within each
+        # leg and reverse leg order (e.g. A->B->C becomes C->B->A)
+        reversed_legs = [
+            {"origin": leg["destination"], "destination": leg["origin"]}
+            for leg in reversed(self._legs)
+        ]
+        reverse_unique_id = build_route_id(reversed_legs)
         reverse_exists = any(
             entry.unique_id == reverse_unique_id
             for entry in self._async_current_entries()
@@ -564,23 +666,27 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             if user_input.get(CONF_ADD_RETURN_JOURNEY, False):
+                reverse_data: dict[str, Any] = {
+                    CONF_API_KEY: self._api_key,
+                    CONF_ORIGIN: self._destination,
+                    CONF_DESTINATION: self._origin,
+                    CONF_COMMUTE_NAME: f"{self._destination_name} to {self._origin_name}",
+                    CONF_TIME_WINDOW: self._time_window,
+                    CONF_NUM_SERVICES: self._num_services,
+                    CONF_NIGHT_UPDATES: self._night_updates,
+                    CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
+                    CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
+                    CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
+                    CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
+                }
+                if len(self._legs) > 1:
+                    reverse_data[CONF_LEGS] = reversed_legs
+
                 self.hass.async_create_task(
                     self.hass.config_entries.flow.async_init(
                         DOMAIN,
                         context={"source": config_entries.SOURCE_IMPORT},
-                        data={
-                            CONF_API_KEY: self._api_key,
-                            CONF_ORIGIN: self._destination,
-                            CONF_DESTINATION: self._origin,
-                            CONF_COMMUTE_NAME: f"{self._destination_name} to {self._origin_name}",
-                            CONF_TIME_WINDOW: self._time_window,
-                            CONF_NUM_SERVICES: self._num_services,
-                            CONF_NIGHT_UPDATES: self._night_updates,
-                            CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
-                            CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
-                            CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
-                            CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
-                        },
+                        data=reverse_data,
                     )
                 )
             return self._create_entry()
@@ -612,9 +718,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Returns:
             FlowResult creating the entry, or aborting if already configured
         """
-        await self.async_set_unique_id(
-            f"{user_input[CONF_ORIGIN]}_{user_input[CONF_DESTINATION]}"
-        )
+        legs = user_input.get(CONF_LEGS) or [
+            {"origin": user_input[CONF_ORIGIN], "destination": user_input.get(CONF_DESTINATION)}
+        ]
+        await self.async_set_unique_id(build_route_id(legs))
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
             title=user_input[CONF_COMMUTE_NAME],
@@ -638,6 +745,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         if self._destination:
             data[CONF_DESTINATION] = self._destination
+        if len(self._legs) > 1:
+            data[CONF_LEGS] = self._legs
+            data[CONF_ORIGIN] = self._legs[0]["origin"]
+            data[CONF_DESTINATION] = self._legs[-1]["destination"]
         return self.async_create_entry(title=self._commute_name, data=data)
 
     @staticmethod

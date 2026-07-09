@@ -32,6 +32,7 @@ def _make_coordinator(origin="LBG", destination="WYT", stats_store=None):
     coordinator = MagicMock(spec=NationalRailDataUpdateCoordinator)
     coordinator.origin = origin
     coordinator.destination = destination
+    coordinator.legs = [{"origin": origin, "destination": destination}]
     coordinator.num_services = 3
     coordinator.stats_store = stats_store
     coordinator.data = {
