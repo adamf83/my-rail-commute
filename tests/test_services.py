@@ -8,7 +8,6 @@ import pytest
 
 from custom_components.my_rail_commute import (
     SERVICE_GET_HISTORICAL_RAW_DATA,
-    SERVICE_GET_RECENT_JOURNEYS,
     async_setup_entry,
 )
 from custom_components.my_rail_commute.const import DOMAIN
@@ -70,7 +69,6 @@ async def test_get_historical_raw_data_returns_days():
     ):
         mock_coord_instance = MagicMock()
         mock_coord_instance.stats_store = stats_store
-        mock_coord_instance.journeys_store = None
         mock_coord_instance.async_config_entry_first_refresh = AsyncMock()
         MockCoord.return_value = mock_coord_instance
 
@@ -122,7 +120,6 @@ async def test_get_historical_raw_data_invalid_entry_id():
         patch("custom_components.my_rail_commute.CommuteStatisticsStore") as MockStore,
     ):
         mock_coord_instance = MagicMock()
-        mock_coord_instance.journeys_store = None
         mock_coord_instance.async_config_entry_first_refresh = AsyncMock()
         MockCoord.return_value = mock_coord_instance
 
@@ -140,102 +137,3 @@ async def test_get_historical_raw_data_invalid_entry_id():
     call = _FakeServiceCall("nonexistent_entry_id")
     with pytest.raises(ServiceValidationError):
         await registered_handlers[SERVICE_GET_HISTORICAL_RAW_DATA](call)
-
-
-@pytest.mark.asyncio
-async def test_get_recent_journeys_returns_journeys():
-    """Service handler returns recent journeys for an entry with the feature enabled."""
-    journeys = [{"train_id": "1A23", "service_date": "2026-07-05", "is_cancelled": False}]
-    hass, _, _ = _make_hass(entry_id="test_entry_id")
-
-    registered_handlers: dict = {}
-
-    def capture_register(domain, service_name, handler, **kwargs):
-        registered_handlers[service_name] = handler
-
-    hass.services.has_service = MagicMock(return_value=False)
-    hass.services.async_register = MagicMock(side_effect=capture_register)
-
-    entry = MagicMock()
-    entry.entry_id = "test_entry_id"
-    entry.data = {"api_key": "test_key", "origin": "PAD", "destination": "RDG",
-                  "time_window": 60, "num_services": 3, "night_updates": False,
-                  "severe_delay_threshold": 15, "major_delay_threshold": 10,
-                  "minor_delay_threshold": 3, "departed_train_grace_period": 5}
-    entry.options = {}
-
-    with (
-        patch("custom_components.my_rail_commute.async_get_clientsession"),
-        patch("custom_components.my_rail_commute.NationalRailAPI"),
-        patch("custom_components.my_rail_commute.NationalRailDataUpdateCoordinator") as MockCoord,
-        patch("custom_components.my_rail_commute.CommuteStatisticsStore") as MockStore,
-    ):
-        mock_coord_instance = MagicMock()
-        mock_coord_instance.async_config_entry_first_refresh = AsyncMock()
-        mock_coord_instance.journeys_store.get_recent_journeys = MagicMock(return_value=journeys)
-        MockCoord.return_value = mock_coord_instance
-
-        mock_store_instance = MagicMock()
-        mock_store_instance.async_load = AsyncMock()
-        MockStore.return_value = mock_store_instance
-
-        hass.config_entries = MagicMock()
-        hass.config_entries.async_forward_entry_setups = AsyncMock()
-        hass.data = {}
-
-        await async_setup_entry(hass, entry)
-
-    assert SERVICE_GET_RECENT_JOURNEYS in registered_handlers
-    call = _FakeServiceCall("test_entry_id")
-    call.data["limit"] = 10
-    result = await registered_handlers[SERVICE_GET_RECENT_JOURNEYS](call)
-    assert result == {"journeys": journeys}
-    mock_coord_instance.journeys_store.get_recent_journeys.assert_called_once_with(10)
-
-
-@pytest.mark.asyncio
-async def test_get_recent_journeys_not_enabled_raises():
-    """Service handler raises ServiceValidationError when the feature isn't enabled."""
-    hass, _, _ = _make_hass(entry_id="test_entry_id")
-
-    registered_handlers: dict = {}
-
-    def capture_register(domain, service_name, handler, **kwargs):
-        registered_handlers[service_name] = handler
-
-    hass.services.has_service = MagicMock(return_value=False)
-    hass.services.async_register = MagicMock(side_effect=capture_register)
-
-    entry = MagicMock()
-    entry.entry_id = "test_entry_id"
-    entry.data = {"api_key": "test_key", "origin": "PAD", "destination": "RDG",
-                  "time_window": 60, "num_services": 3, "night_updates": False,
-                  "severe_delay_threshold": 15, "major_delay_threshold": 10,
-                  "minor_delay_threshold": 3, "departed_train_grace_period": 5}
-    entry.options = {}
-
-    with (
-        patch("custom_components.my_rail_commute.async_get_clientsession"),
-        patch("custom_components.my_rail_commute.NationalRailAPI"),
-        patch("custom_components.my_rail_commute.NationalRailDataUpdateCoordinator") as MockCoord,
-        patch("custom_components.my_rail_commute.CommuteStatisticsStore") as MockStore,
-    ):
-        mock_coord_instance = MagicMock()
-        mock_coord_instance.journeys_store = None
-        mock_coord_instance.async_config_entry_first_refresh = AsyncMock()
-        MockCoord.return_value = mock_coord_instance
-
-        mock_store_instance = MagicMock()
-        mock_store_instance.async_load = AsyncMock()
-        MockStore.return_value = mock_store_instance
-
-        hass.config_entries = MagicMock()
-        hass.config_entries.async_forward_entry_setups = AsyncMock()
-        hass.data = {}
-
-        await async_setup_entry(hass, entry)
-
-    assert SERVICE_GET_RECENT_JOURNEYS in registered_handlers
-    call = _FakeServiceCall("test_entry_id")
-    with pytest.raises(ServiceValidationError):
-        await registered_handlers[SERVICE_GET_RECENT_JOURNEYS](call)

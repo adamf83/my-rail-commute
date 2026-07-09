@@ -14,7 +14,6 @@ aioresponses>=0.7.6
 # Required runtime dependencies
 aiohttp>=3.9.0
 voluptuous>=0.13.1
-stomp.py>=8.1.0,<9
 
 # Home Assistant (for testing)
 homeassistant>=2024.1.0

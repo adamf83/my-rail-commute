@@ -122,22 +122,3 @@ get_historical_raw_data:
       required: true
       selector:
         text: {}
-
-get_recent_journeys:
-  name: Get Recent Journeys
-  description: Retrieve the log of recent actual train times (Recent Train Times feature) for a commute, newest first.
-  fields:
-    entry_id:
-      name: Entry ID
-      description: The config entry ID of the commute (find it in Settings → Integrations).
-      required: true
-      selector:
-        text: {}
-    limit:
-      name: Limit
-      description: Maximum number of recent journeys to return (default 20).
-      required: false
-      selector:
-        number:
-          min: 1
-          max: 500

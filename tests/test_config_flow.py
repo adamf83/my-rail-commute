@@ -23,12 +23,9 @@ from custom_components.my_rail_commute.const import (
     CONF_ADD_RETURN_JOURNEY,
     CONF_COMMUTE_NAME,
     CONF_DESTINATION,
-    CONF_ENABLE_RECENT_TRAIN_TIMES,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
-    CONF_NROD_PASSWORD,
-    CONF_NROD_USERNAME,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
     CONF_SEVERE_DELAY_THRESHOLD,
@@ -38,7 +35,6 @@ from custom_components.my_rail_commute.const import (
     DEFAULT_SEVERE_DELAY_THRESHOLD,
     DOMAIN,
 )
-from custom_components.my_rail_commute.corpus import CorpusAuthenticationError
 
 
 class TestValidateAPIKey:
@@ -506,183 +502,6 @@ class TestConfigFlow:
         assert result["type"] == data_entry_flow.FlowResultType.ABORT
         assert result["reason"] == "already_configured"
 
-    async def test_settings_enable_recent_train_times_proceeds_to_nrod_step(
-        self, hass: HomeAssistant
-    ):
-        """Enabling Recent Train Times in settings routes to the NROD credentials step."""
-        result = await self._complete_flow_to_settings(hass, None)
-
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_COMMUTE_NAME: "Morning Commute",
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-            },
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "nrod_credentials"
-
-    async def test_nrod_credentials_success_creates_entry(self, hass: HomeAssistant):
-        """Valid NROD credentials proceed to return_journey and land in the final entry."""
-        result = await self._complete_flow_to_settings(hass, None)
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_COMMUTE_NAME: "Morning Commute",
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-            },
-        )
-
-        with patch(
-            "custom_components.my_rail_commute.config_flow.validate_nrod_credentials",
-            new=AsyncMock(return_value=None),
-        ):
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                user_input={CONF_NROD_USERNAME: "nrod_user", CONF_NROD_PASSWORD: "nrod_pass"},
-            )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "return_journey"
-
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result["data"][CONF_ENABLE_RECENT_TRAIN_TIMES] is True
-        assert result["data"][CONF_NROD_USERNAME] == "nrod_user"
-        assert result["data"][CONF_NROD_PASSWORD] == "nrod_pass"
-
-    async def test_nrod_credentials_invalid_auth_shows_error(self, hass: HomeAssistant):
-        """A rejected NROD username/password re-shows the form with an error."""
-        result = await self._complete_flow_to_settings(hass, None)
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_COMMUTE_NAME: "Morning Commute",
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-            },
-        )
-
-        with patch(
-            "custom_components.my_rail_commute.config_flow.validate_nrod_credentials",
-            new=AsyncMock(side_effect=CorpusAuthenticationError("bad creds")),
-        ):
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                user_input={CONF_NROD_USERNAME: "nrod_user", CONF_NROD_PASSWORD: "wrong"},
-            )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "nrod_credentials"
-        assert result["errors"]["base"] == "invalid_nrod_auth"
-
-    async def test_nrod_credentials_reused_from_existing_entry(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
-        """An existing entry's NROD credentials are reused silently for a new route."""
-        mock_config_entry.add_to_hass(hass)
-        hass.config_entries.async_update_entry(
-            mock_config_entry,
-            data={
-                **mock_config_entry.data,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-                CONF_NROD_USERNAME: "existing_user",
-                CONF_NROD_PASSWORD: "existing_pass",
-            },
-        )
-
-        # Step 1: User (API key) - reused from existing entry
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        # Step 2: Stations - a different destination so it's not a duplicate route
-        with patch(
-            "custom_components.my_rail_commute.config_flow.validate_stations",
-            return_value={"origin_name": "London Paddington", "destination_name": "Oxford"},
-        ):
-            result = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "OXF"},
-            )
-
-        # Step 3: Settings, with Recent Train Times enabled
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_COMMUTE_NAME: "Oxford Commute",
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-            },
-        )
-
-        # NROD credentials step is skipped entirely; straight to return_journey
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "return_journey"
-
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result["data"][CONF_NROD_USERNAME] == "existing_user"
-        assert result["data"][CONF_NROD_PASSWORD] == "existing_pass"
-
-    async def test_recent_train_times_requires_destination(self, hass: HomeAssistant):
-        """Enabling Recent Train Times with 'All Departures' shows a validation error."""
-        flow = NationalRailCommuteConfigFlow()
-        flow.hass = hass
-        flow._api_key = "valid_key"
-        flow._origin = "PAD"
-        flow._origin_name = "London Paddington"
-        flow._destination = None
-        flow._destination_name = None
-        flow._all_departures = True
-
-        result = await flow.async_step_settings(
-            user_input={
-                CONF_COMMUTE_NAME: "All Departures",
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-            }
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["step_id"] == "settings"
-        assert result["errors"]["base"] == "recent_train_times_needs_destination"
-
-
 class TestOptionsFlow:
     """Tests for the options flow."""
 
@@ -725,91 +544,6 @@ class TestOptionsFlow:
         assert result["data"][CONF_SEVERE_DELAY_THRESHOLD] == 20
         assert result["data"][CONF_MAJOR_DELAY_THRESHOLD] == 12
         assert result["data"][CONF_MINOR_DELAY_THRESHOLD] == 5
-
-    async def test_options_flow_enable_recent_train_times_with_credentials(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
-        """Enabling the toggle with credentials supplied saves them into options."""
-        mock_config_entry.add_to_hass(hass)
-
-        result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-                CONF_NROD_USERNAME: "nrod_user",
-                CONF_NROD_PASSWORD: "nrod_pass",
-            },
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result["data"][CONF_ENABLE_RECENT_TRAIN_TIMES] is True
-        assert result["data"][CONF_NROD_USERNAME] == "nrod_user"
-        assert result["data"][CONF_NROD_PASSWORD] == "nrod_pass"
-
-    async def test_options_flow_enable_recent_train_times_without_credentials_errors(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
-        """Enabling the toggle with no credentials on file shows a validation error."""
-        mock_config_entry.add_to_hass(hass)
-
-        result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-            },
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
-        assert result["errors"]["base"] == "nrod_credentials_required"
-
-    async def test_options_flow_blank_password_keeps_existing_credentials(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
-        """A blank password in options means 'keep the existing one'."""
-        mock_config_entry.add_to_hass(hass)
-        hass.config_entries.async_update_entry(
-            mock_config_entry,
-            data={
-                **mock_config_entry.data,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-                CONF_NROD_USERNAME: "existing_user",
-                CONF_NROD_PASSWORD: "existing_pass",
-            },
-        )
-
-        result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            user_input={
-                CONF_TIME_WINDOW: 60,
-                CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
-                CONF_ENABLE_RECENT_TRAIN_TIMES: True,
-                CONF_NROD_USERNAME: "existing_user",
-                CONF_NROD_PASSWORD: "",
-            },
-        )
-
-        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result["data"][CONF_NROD_PASSWORD] == "existing_pass"
-
 
 class TestHaversineDistance:
     """Tests for the haversine distance calculation helper."""
