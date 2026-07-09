@@ -31,14 +31,20 @@ from custom_components.my_rail_commute.const import (
 _TEST_TIME = datetime(2024, 1, 15, 8, 0, 0, tzinfo=dt_util.UTC)
 
 
-def _leg_response(origin_name: str, destination_name: str, service_id: str) -> dict:
+def _leg_response(
+    origin_name: str,
+    destination_name: str,
+    service_id: str,
+    departure: str = "08:35",
+    arrival: str = "08:55",
+) -> dict:
     return {
         "location_name": origin_name,
         "destination_name": destination_name,
         "services": [
             {
-                "scheduled_departure": "08:35",
-                "expected_departure": "08:35",
+                "scheduled_departure": departure,
+                "expected_departure": departure,
                 "platform": "3",
                 "operator": "Great Western Railway",
                 "service_id": service_id,
@@ -48,8 +54,8 @@ def _leg_response(origin_name: str, destination_name: str, service_id: str) -> d
                 "is_cancelled": False,
                 "cancellation_reason": None,
                 "delay_reason": None,
-                "scheduled_arrival": "08:55",
-                "estimated_arrival": "08:55",
+                "scheduled_arrival": arrival,
+                "estimated_arrival": arrival,
                 "destination": destination_name,
             }
         ],
@@ -91,7 +97,9 @@ async def test_multi_leg_entry_creates_per_leg_sensors(
     mock_api_client.get_departure_board = AsyncMock(
         side_effect=[
             _leg_response("Paddington", "Reading", "svc-leg1"),
-            _leg_response("Reading", "Oxford", "svc-leg2"),
+            _leg_response(
+                "Reading", "Oxford", "svc-leg2", departure="09:15", arrival="09:35"
+            ),
         ]
     )
 
@@ -169,7 +177,9 @@ async def test_multi_leg_device_id_uses_full_chain(
     mock_api_client.get_departure_board = AsyncMock(
         side_effect=[
             _leg_response("Paddington", "Reading", "svc-leg1"),
-            _leg_response("Reading", "Oxford", "svc-leg2"),
+            _leg_response(
+                "Reading", "Oxford", "svc-leg2", departure="09:15", arrival="09:35"
+            ),
         ]
     )
 
@@ -181,3 +191,100 @@ async def test_multi_leg_device_id_uses_full_chain(
     device = device_reg.async_get_device(identifiers={(DOMAIN, "PAD_RDG_OXF")})
     assert device is not None
     assert device.name == "Test Journey"
+
+
+async def test_connection_status_sensor_created_and_ok(
+    hass: HomeAssistant, multi_leg_entry, mock_api_client
+) -> None:
+    """A two-leg journey creates one Connection Status sensor per interchange,
+    reporting Connection OK when the buffer is comfortable."""
+    mock_api_client.get_departure_board = AsyncMock(
+        side_effect=[
+            _leg_response("Paddington", "Reading", "svc-leg1"),
+            _leg_response(
+                "Reading", "Oxford", "svc-leg2", departure="09:15", arrival="09:35"
+            ),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        multi_leg_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(multi_leg_entry.entry_id)
+        await hass.async_block_till_done()
+
+    connection_status = hass.states.get("sensor.test_journey_connection_1_status")
+    assert connection_status is not None
+    assert connection_status.state == "Connection OK"
+    assert connection_status.attributes["station"] == "RDG"
+    assert connection_status.attributes["feasible"] is True
+    assert connection_status.attributes["buffer_minutes"] == 20
+
+    # Only one connection exists for a two-leg journey
+    assert hass.states.get("sensor.test_journey_connection_2_status") is None
+
+
+async def test_connection_status_sensor_missed_elevates_overall_status(
+    hass: HomeAssistant, multi_leg_entry, mock_api_client
+) -> None:
+    """When the outgoing leg's only service departs before the incoming leg
+    arrives, the connection is Missed and the overall Status becomes Critical
+    even though both legs individually report Normal."""
+    mock_api_client.get_departure_board = AsyncMock(
+        side_effect=[
+            _leg_response("Paddington", "Reading", "svc-leg1"),
+            _leg_response(
+                "Reading", "Oxford", "svc-leg2", departure="08:40", arrival="09:00"
+            ),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        multi_leg_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(multi_leg_entry.entry_id)
+        await hass.async_block_till_done()
+
+    leg1_status = hass.states.get("sensor.test_journey_leg_1_status")
+    leg2_status = hass.states.get("sensor.test_journey_leg_2_status")
+    connection_status = hass.states.get("sensor.test_journey_connection_1_status")
+    overall_status = hass.states.get("sensor.test_journey_status")
+
+    assert leg1_status.state == "Normal"
+    assert leg2_status.state == "Normal"
+    assert connection_status.state == "Missed Connection"
+    assert connection_status.attributes["feasible"] is False
+    assert overall_status.state == "Critical"
+
+
+async def test_summary_sensor_exposes_connections_and_journey_feasible(
+    hass: HomeAssistant, multi_leg_entry, mock_api_client
+) -> None:
+    """The combined Summary sensor exposes connections and journey_feasible
+    attributes for a multi-leg journey."""
+    mock_api_client.get_departure_board = AsyncMock(
+        side_effect=[
+            _leg_response("Paddington", "Reading", "svc-leg1"),
+            _leg_response(
+                "Reading", "Oxford", "svc-leg2", departure="09:15", arrival="09:35"
+            ),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        multi_leg_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(multi_leg_entry.entry_id)
+        await hass.async_block_till_done()
+
+    summary = hass.states.get("sensor.test_journey_summary")
+    assert summary is not None
+    assert summary.attributes["journey_feasible"] is True
+    assert len(summary.attributes["connections"]) == 1
+    assert summary.attributes["connections"][0]["status"] == "Connection OK"

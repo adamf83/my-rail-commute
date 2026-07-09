@@ -33,6 +33,7 @@ from .const import (
     CONF_LEG_DESTINATION,
     CONF_LEGS,
     CONF_MAJOR_DELAY_THRESHOLD,
+    CONF_MIN_CONNECTION_TIME,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
@@ -41,6 +42,7 @@ from .const import (
     CONF_TIME_WINDOW,
     DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD,
     DEFAULT_MAJOR_DELAY_THRESHOLD,
+    DEFAULT_MIN_CONNECTION_TIME,
     DEFAULT_MINOR_DELAY_THRESHOLD,
     DEFAULT_NAME,
     DEFAULT_NIGHT_UPDATES,
@@ -50,10 +52,12 @@ from .const import (
     DOMAIN,
     LOCATION_SEARCH_MAX_RADIUS_MILES,
     LOCATION_SEARCH_MIN_RADIUS_MILES,
+    MAX_CONNECTION_TIME,
     MAX_DELAY_THRESHOLD,
     MAX_GRACE_PERIOD,
     MAX_NUM_SERVICES,
     MAX_TIME_WINDOW,
+    MIN_CONNECTION_TIME,
     MIN_DELAY_THRESHOLD,
     MIN_GRACE_PERIOD,
     MIN_NUM_SERVICES,
@@ -197,6 +201,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._major_delay_threshold: int | None = None
         self._minor_delay_threshold: int | None = None
         self._departed_train_grace_period: int | None = None
+        self._min_connection_time: int | None = None
         self._nearby_stations: list[tuple[float, dict]] | None = None
         self._legs: list[dict[str, Any]] = []
         self._leg_names: list[dict[str, str]] = []
@@ -541,6 +546,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._departed_train_grace_period = user_input.get(
                     CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
                 )
+                if len(self._legs) > 1:
+                    self._min_connection_time = user_input.get(
+                        CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME
+                    )
 
                 # Set unique ID based on the full route chain (all-departures
                 # gets a distinct suffix; single-leg routes match the historical format)
@@ -559,89 +568,105 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         else:
             default_name = f"{self._origin_name} to {self._destination_name}"
 
-        data_schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_COMMUTE_NAME,
-                    default=default_name,
-                ): str,
-                vol.Required(
-                    CONF_TIME_WINDOW,
-                    default=DEFAULT_TIME_WINDOW,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_TIME_WINDOW,
-                        max=MAX_TIME_WINDOW,
-                        step=5,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+        schema_dict: dict[Any, Any] = {
+            vol.Optional(
+                CONF_COMMUTE_NAME,
+                default=default_name,
+            ): str,
+            vol.Required(
+                CONF_TIME_WINDOW,
+                default=DEFAULT_TIME_WINDOW,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_TIME_WINDOW,
+                    max=MAX_TIME_WINDOW,
+                    step=5,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 ),
-                vol.Required(
-                    CONF_NUM_SERVICES,
-                    default=DEFAULT_NUM_SERVICES,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_NUM_SERVICES,
-                        max=MAX_NUM_SERVICES,
-                        step=1,
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+            ),
+            vol.Required(
+                CONF_NUM_SERVICES,
+                default=DEFAULT_NUM_SERVICES,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_NUM_SERVICES,
+                    max=MAX_NUM_SERVICES,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
                 ),
-                vol.Required(
-                    CONF_SEVERE_DELAY_THRESHOLD,
-                    default=DEFAULT_SEVERE_DELAY_THRESHOLD,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_DELAY_THRESHOLD,
-                        max=MAX_DELAY_THRESHOLD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+            ),
+            vol.Required(
+                CONF_SEVERE_DELAY_THRESHOLD,
+                default=DEFAULT_SEVERE_DELAY_THRESHOLD,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_DELAY_THRESHOLD,
+                    max=MAX_DELAY_THRESHOLD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 ),
-                vol.Required(
-                    CONF_MAJOR_DELAY_THRESHOLD,
-                    default=DEFAULT_MAJOR_DELAY_THRESHOLD,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_DELAY_THRESHOLD,
-                        max=MAX_DELAY_THRESHOLD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+            ),
+            vol.Required(
+                CONF_MAJOR_DELAY_THRESHOLD,
+                default=DEFAULT_MAJOR_DELAY_THRESHOLD,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_DELAY_THRESHOLD,
+                    max=MAX_DELAY_THRESHOLD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 ),
-                vol.Required(
-                    CONF_MINOR_DELAY_THRESHOLD,
-                    default=DEFAULT_MINOR_DELAY_THRESHOLD,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_DELAY_THRESHOLD,
-                        max=MAX_DELAY_THRESHOLD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+            ),
+            vol.Required(
+                CONF_MINOR_DELAY_THRESHOLD,
+                default=DEFAULT_MINOR_DELAY_THRESHOLD,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_DELAY_THRESHOLD,
+                    max=MAX_DELAY_THRESHOLD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 ),
-                vol.Required(
-                    CONF_NIGHT_UPDATES,
-                    default=DEFAULT_NIGHT_UPDATES,
-                ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_DEPARTED_TRAIN_GRACE_PERIOD,
-                    default=DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_GRACE_PERIOD,
-                        max=MAX_GRACE_PERIOD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+            ),
+            vol.Required(
+                CONF_NIGHT_UPDATES,
+                default=DEFAULT_NIGHT_UPDATES,
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_DEPARTED_TRAIN_GRACE_PERIOD,
+                default=DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_GRACE_PERIOD,
+                    max=MAX_GRACE_PERIOD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 ),
-            }
-        )
+            ),
+        }
+
+        if len(self._legs) > 1:
+            schema_dict[
+                vol.Required(
+                    CONF_MIN_CONNECTION_TIME,
+                    default=DEFAULT_MIN_CONNECTION_TIME,
+                )
+            ] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_CONNECTION_TIME,
+                    max=MAX_CONNECTION_TIME,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                ),
+            )
+
+        data_schema = vol.Schema(schema_dict)
 
         return self.async_show_form(
             step_id="settings",
@@ -696,6 +721,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
                 if len(self._legs) > 1:
                     reverse_data[CONF_LEGS] = reversed_legs
+                    reverse_data[CONF_MIN_CONNECTION_TIME] = (
+                        self._min_connection_time or DEFAULT_MIN_CONNECTION_TIME
+                    )
 
                 self.hass.async_create_task(
                     self.hass.config_entries.flow.async_init(
@@ -764,6 +792,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data[CONF_LEGS] = self._legs
             data[CONF_ORIGIN] = self._legs[0]["origin"]
             data[CONF_DESTINATION] = self._legs[-1]["destination"]
+            data[CONF_MIN_CONNECTION_TIME] = (
+                self._min_connection_time or DEFAULT_MIN_CONNECTION_TIME
+            )
         return self.async_create_entry(title=self._commute_name, data=data)
 
     @staticmethod
@@ -819,114 +850,135 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 # Update the config entry
                 return self.async_create_entry(title="", data=data)
 
-        data_schema = vol.Schema(
-            {
-                vol.Required(
+        schema_dict: dict[Any, Any] = {
+            vol.Required(
+                CONF_TIME_WINDOW,
+                default=options.get(
                     CONF_TIME_WINDOW,
-                    default=options.get(
-                        CONF_TIME_WINDOW,
-                        current_data.get(CONF_TIME_WINDOW, DEFAULT_TIME_WINDOW),
-                    ),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_TIME_WINDOW,
-                        max=MAX_TIME_WINDOW,
-                        step=5,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+                    current_data.get(CONF_TIME_WINDOW, DEFAULT_TIME_WINDOW),
                 ),
-                vol.Required(
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_TIME_WINDOW,
+                    max=MAX_TIME_WINDOW,
+                    step=5,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                ),
+            ),
+            vol.Required(
+                CONF_NUM_SERVICES,
+                default=options.get(
                     CONF_NUM_SERVICES,
-                    default=options.get(
-                        CONF_NUM_SERVICES,
-                        current_data.get(CONF_NUM_SERVICES, DEFAULT_NUM_SERVICES),
-                    ),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_NUM_SERVICES,
-                        max=MAX_NUM_SERVICES,
-                        step=1,
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+                    current_data.get(CONF_NUM_SERVICES, DEFAULT_NUM_SERVICES),
                 ),
-                vol.Required(
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_NUM_SERVICES,
+                    max=MAX_NUM_SERVICES,
+                    step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                ),
+            ),
+            vol.Required(
+                CONF_SEVERE_DELAY_THRESHOLD,
+                default=options.get(
                     CONF_SEVERE_DELAY_THRESHOLD,
-                    default=options.get(
+                    current_data.get(
                         CONF_SEVERE_DELAY_THRESHOLD,
-                        current_data.get(
-                            CONF_SEVERE_DELAY_THRESHOLD,
-                            # Migration from old config
-                            current_data.get(CONF_DISRUPTION_SINGLE_DELAY, DEFAULT_SEVERE_DELAY_THRESHOLD),
-                        ),
-                    ),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_DELAY_THRESHOLD,
-                        max=MAX_DELAY_THRESHOLD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
+                        # Migration from old config
+                        current_data.get(CONF_DISRUPTION_SINGLE_DELAY, DEFAULT_SEVERE_DELAY_THRESHOLD),
                     ),
                 ),
-                vol.Required(
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_DELAY_THRESHOLD,
+                    max=MAX_DELAY_THRESHOLD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                ),
+            ),
+            vol.Required(
+                CONF_MAJOR_DELAY_THRESHOLD,
+                default=options.get(
                     CONF_MAJOR_DELAY_THRESHOLD,
-                    default=options.get(
+                    current_data.get(
                         CONF_MAJOR_DELAY_THRESHOLD,
+                        # Migration from old config
+                        current_data.get(CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD),
+                    ),
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_DELAY_THRESHOLD,
+                    max=MAX_DELAY_THRESHOLD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                ),
+            ),
+            vol.Required(
+                CONF_MINOR_DELAY_THRESHOLD,
+                default=options.get(
+                    CONF_MINOR_DELAY_THRESHOLD,
+                    current_data.get(CONF_MINOR_DELAY_THRESHOLD, DEFAULT_MINOR_DELAY_THRESHOLD),
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_DELAY_THRESHOLD,
+                    max=MAX_DELAY_THRESHOLD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                ),
+            ),
+            vol.Required(
+                CONF_NIGHT_UPDATES,
+                default=options.get(
+                    CONF_NIGHT_UPDATES,
+                    current_data.get(CONF_NIGHT_UPDATES, DEFAULT_NIGHT_UPDATES),
+                ),
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_DEPARTED_TRAIN_GRACE_PERIOD,
+                default=options.get(
+                    CONF_DEPARTED_TRAIN_GRACE_PERIOD,
+                    current_data.get(CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD),
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_GRACE_PERIOD,
+                    max=MAX_GRACE_PERIOD,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                ),
+            ),
+        }
+
+        if len(current_data.get(CONF_LEGS) or []) > 1:
+            schema_dict[
+                vol.Required(
+                    CONF_MIN_CONNECTION_TIME,
+                    default=options.get(
+                        CONF_MIN_CONNECTION_TIME,
                         current_data.get(
-                            CONF_MAJOR_DELAY_THRESHOLD,
-                            # Migration from old config
-                            current_data.get(CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD),
+                            CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME
                         ),
                     ),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_DELAY_THRESHOLD,
-                        max=MAX_DELAY_THRESHOLD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
+                )
+            ] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_CONNECTION_TIME,
+                    max=MAX_CONNECTION_TIME,
+                    step=1,
+                    unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 ),
-                vol.Required(
-                    CONF_MINOR_DELAY_THRESHOLD,
-                    default=options.get(
-                        CONF_MINOR_DELAY_THRESHOLD,
-                        current_data.get(CONF_MINOR_DELAY_THRESHOLD, DEFAULT_MINOR_DELAY_THRESHOLD),
-                    ),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_DELAY_THRESHOLD,
-                        max=MAX_DELAY_THRESHOLD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
-                ),
-                vol.Required(
-                    CONF_NIGHT_UPDATES,
-                    default=options.get(
-                        CONF_NIGHT_UPDATES,
-                        current_data.get(CONF_NIGHT_UPDATES, DEFAULT_NIGHT_UPDATES),
-                    ),
-                ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_DEPARTED_TRAIN_GRACE_PERIOD,
-                    default=options.get(
-                        CONF_DEPARTED_TRAIN_GRACE_PERIOD,
-                        current_data.get(CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD),
-                    ),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=MIN_GRACE_PERIOD,
-                        max=MAX_GRACE_PERIOD,
-                        step=1,
-                        unit_of_measurement="minutes",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    ),
-                ),
-            }
-        )
+            )
+
+        data_schema = vol.Schema(schema_dict)
 
         return self.async_show_form(
             step_id="init",

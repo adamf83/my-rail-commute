@@ -15,6 +15,7 @@ from .const import (
     ATTR_CANCELLED_COUNT,
     ATTR_DELAYED_COUNT,
     ATTR_DISRUPTION_REASONS,
+    ATTR_JOURNEY_FEASIBLE,
     ATTR_MAX_DELAY,
     CONF_COMMUTE_NAME,
     DOMAIN,
@@ -157,6 +158,9 @@ class DisruptionSensor(NationalRailCommuteBinarySensor):
             ATTR_DISRUPTION_REASONS: data.get("disruption_reasons", []),
             "last_checked": data.get("last_updated"),
         }
+
+        if data.get("is_multi_leg"):
+            attributes[ATTR_JOURNEY_FEASIBLE] = data.get("journey_feasible")
 
         return attributes
 

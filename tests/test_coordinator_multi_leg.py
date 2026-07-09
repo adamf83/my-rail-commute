@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.const import CONF_API_KEY
@@ -16,6 +16,7 @@ from custom_components.my_rail_commute.const import (
     CONF_DESTINATION,
     CONF_LEGS,
     CONF_MAJOR_DELAY_THRESHOLD,
+    CONF_MIN_CONNECTION_TIME,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
@@ -23,9 +24,15 @@ from custom_components.my_rail_commute.const import (
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
     DEFAULT_MAJOR_DELAY_THRESHOLD,
+    DEFAULT_MIN_CONNECTION_TIME,
     DEFAULT_MINOR_DELAY_THRESHOLD,
     DEFAULT_SEVERE_DELAY_THRESHOLD,
     STATUS_CANCELLED,
+    STATUS_CONNECTION_DELAYED,
+    STATUS_CONNECTION_MISSED,
+    STATUS_CONNECTION_OK,
+    STATUS_CONNECTION_TIGHT,
+    STATUS_CONNECTION_UNKNOWN,
     STATUS_CRITICAL,
     STATUS_DELAYED,
     STATUS_MAJOR_DELAYS,
@@ -42,14 +49,39 @@ from custom_components.my_rail_commute.coordinator import (
 _TEST_TIME = datetime(2024, 1, 15, 8, 0, 0, tzinfo=dt_util.UTC)
 
 
+def _shift_time(time_str: str, minutes: int) -> str:
+    """Shift an "HH:MM" string by `minutes` (may cross midnight)."""
+    dt = datetime.strptime(f"2000-01-01 {time_str}", "%Y-%m-%d %H:%M") + timedelta(
+        minutes=minutes
+    )
+    return dt.strftime("%H:%M")
+
+
 def _make_service(
-    service_id: str, status: str = STATUS_ON_TIME, delay_minutes: int = 0
+    service_id: str,
+    status: str = STATUS_ON_TIME,
+    delay_minutes: int = 0,
+    scheduled_departure: str = "09:00",
+    scheduled_arrival: str = "09:30",
+    estimated_arrival: str | None = None,
 ) -> dict:
-    """Build a minimal already-parsed service dict."""
+    """Build a minimal already-parsed service dict.
+
+    Defaults depart at 09:00 and arrive at 09:30 so that a second leg's
+    default service (also departing 09:00) is NOT reachable from this one —
+    tests that chain two legs and don't care about connection feasibility
+    should pass an explicit `scheduled_departure` for the second leg's
+    service that falls comfortably after 09:30.
+    """
     is_cancelled = status == STATUS_CANCELLED
+    expected_departure = (
+        scheduled_departure
+        if delay_minutes == 0
+        else _shift_time(scheduled_departure, delay_minutes)
+    )
     return {
-        "scheduled_departure": "09:00",
-        "expected_departure": "09:00" if delay_minutes == 0 else "09:10",
+        "scheduled_departure": scheduled_departure,
+        "expected_departure": expected_departure,
         "platform": "1",
         "operator": "Test Operator",
         "service_id": service_id,
@@ -59,8 +91,8 @@ def _make_service(
         "is_cancelled": is_cancelled,
         "cancellation_reason": "Signal failure" if is_cancelled else None,
         "delay_reason": "Late running" if delay_minutes else None,
-        "scheduled_arrival": "09:30",
-        "estimated_arrival": "09:30",
+        "scheduled_arrival": scheduled_arrival,
+        "estimated_arrival": estimated_arrival or scheduled_arrival,
         "destination": "Destination",
     }
 
@@ -76,7 +108,9 @@ def _make_leg_response(origin_name: str, destination_name: str, services: list) 
     }
 
 
-def _make_config(legs: list[dict]) -> dict:
+def _make_config(
+    legs: list[dict], min_connection_time: int = DEFAULT_MIN_CONNECTION_TIME
+) -> dict:
     """Build a multi-leg config dict."""
     return {
         CONF_API_KEY: "test_key",
@@ -89,6 +123,7 @@ def _make_config(legs: list[dict]) -> dict:
         CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
         CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
         CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
+        CONF_MIN_CONNECTION_TIME: min_connection_time,
     }
 
 
@@ -249,7 +284,12 @@ async def test_multi_leg_overall_status_is_worst_case_across_legs(
         {"origin": "RDG", "destination": "OXF"},
     ]
     leg1_service = _make_service("svc1", **leg1_status_kwargs)
-    leg2_service = _make_service("svc2", **leg2_status_kwargs)
+    # Departs comfortably after leg1's 09:30 arrival so this test only
+    # exercises per-leg severity combination, not connection feasibility
+    # (which is covered separately below).
+    leg2_service = _make_service(
+        "svc2", scheduled_departure="09:45", **leg2_status_kwargs
+    )
     if leg1_status_kwargs.get("delay_minutes"):
         leg1_service["status"] = STATUS_DELAYED
     if leg2_status_kwargs.get("delay_minutes"):
@@ -352,3 +392,221 @@ async def test_single_leg_output_shape_unchanged(hass: HomeAssistant) -> None:
     assert set(data.keys()) == expected_keys
     assert "is_multi_leg" not in data
     assert "legs" not in data
+
+
+def _make_leg_result(
+    destination: str, destination_name: str, next_train: dict | None
+) -> dict:
+    """Build a minimal parsed leg_result dict with just the fields
+    `_evaluate_connection` reads from the *incoming* leg."""
+    return {
+        "destination": destination,
+        "destination_name": destination_name,
+        "next_train": next_train,
+    }
+
+
+@pytest.fixture(name="two_leg_coordinator")
+def two_leg_coordinator_fixture(hass: HomeAssistant) -> NationalRailDataUpdateCoordinator:
+    """A coordinator configured for a two-leg PAD -> RDG -> OXF journey."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    return NationalRailDataUpdateCoordinator(hass, AsyncMock(), _make_config(legs))
+
+
+async def test_evaluate_connection_ok_with_comfortable_buffer(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """A generous buffer on the outgoing leg's own next train is Connection OK."""
+    leg_from = _make_leg_result("RDG", "Reading", _make_service("svc1"))
+    outgoing = _make_service("svc2", scheduled_departure="09:45")
+    leg_to = {"services": [outgoing], "next_train": outgoing}
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_OK
+    assert conn["feasible"] is True
+    assert conn["buffer_minutes"] == 15
+    assert conn["arrival_time"] == "09:30"
+    assert conn["connecting_departure"] == "09:45"
+    assert conn["connecting_service_id"] == "svc2"
+
+
+async def test_evaluate_connection_tight_below_margin(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """A buffer that clears the minimum but not the comfort margin is Tight."""
+    leg_from = _make_leg_result("RDG", "Reading", _make_service("svc1"))
+    outgoing = _make_service("svc2", scheduled_departure="09:36")
+    leg_to = {"services": [outgoing], "next_train": outgoing}
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_TIGHT
+    assert conn["feasible"] is True
+    assert conn["buffer_minutes"] == 6
+
+
+async def test_evaluate_connection_missed_when_no_service_has_enough_buffer(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """No tracked outgoing service leaves enough time after arrival."""
+    leg_from = _make_leg_result("RDG", "Reading", _make_service("svc1"))
+    outgoing = _make_service("svc2", scheduled_departure="09:20")
+    leg_to = {"services": [outgoing], "next_train": outgoing}
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_MISSED
+    assert conn["feasible"] is False
+    assert conn["connecting_service_id"] is None
+
+
+async def test_evaluate_connection_delayed_when_a_later_train_is_needed(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """Feasible only on a later train than the outgoing leg's own next train."""
+    leg_from = _make_leg_result("RDG", "Reading", _make_service("svc1"))
+    unreachable_next = _make_service("svc2a", scheduled_departure="09:20")
+    reachable_later = _make_service("svc2b", scheduled_departure="09:50")
+    leg_to = {
+        "services": [unreachable_next, reachable_later],
+        "next_train": unreachable_next,
+    }
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_DELAYED
+    assert conn["feasible"] is True
+    assert conn["connecting_service_id"] == "svc2b"
+
+
+async def test_evaluate_connection_unknown_when_incoming_leg_has_no_next_train(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """No next train on the incoming leg means feasibility can't be judged."""
+    leg_from = _make_leg_result("RDG", "Reading", None)
+    outgoing = _make_service("svc2", scheduled_departure="09:45")
+    leg_to = {"services": [outgoing], "next_train": outgoing}
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_UNKNOWN
+    assert conn["feasible"] is None
+
+
+async def test_evaluate_connection_unknown_when_arrival_time_unparseable(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """An unparseable/missing arrival time is treated as Unknown, not Missed."""
+    next_train = {**_make_service("svc1"), "estimated_arrival": None, "scheduled_arrival": None}
+    leg_from = _make_leg_result("RDG", "Reading", next_train)
+    outgoing = _make_service("svc2", scheduled_departure="09:45")
+    leg_to = {"services": [outgoing], "next_train": outgoing}
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_UNKNOWN
+    assert conn["feasible"] is None
+
+
+async def test_missed_connection_elevates_overall_status_even_with_normal_legs(
+    hass: HomeAssistant,
+) -> None:
+    """A missed connection alone pushes overall_status to Critical, even when
+    both legs are individually Normal."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    # leg1 arrives 09:30; leg2's only service departs 09:20 (before arrival)
+    leg1_service = _make_service("svc1")
+    leg2_service = _make_service("svc2", scheduled_departure="09:20")
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response("Paddington", "Reading", [leg1_service]),
+            _make_leg_response("Reading", "Oxford", [leg2_service]),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(hass, api, _make_config(legs))
+        data = await coordinator._async_update_data()
+
+    assert data["legs"][0]["overall_status"] == STATUS_NORMAL
+    assert data["legs"][1]["overall_status"] == STATUS_NORMAL
+    assert data["connections"][0]["status"] == STATUS_CONNECTION_MISSED
+    assert data["journey_feasible"] is False
+    assert data["overall_status"] == STATUS_CRITICAL
+
+
+async def test_connection_feasible_journey_reports_ok_and_feasible_true(
+    hass: HomeAssistant,
+) -> None:
+    """A comfortably-timed connection reports OK, feasible, and Normal overall."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    leg1_service = _make_service("svc1")
+    leg2_service = _make_service("svc2", scheduled_departure="09:45")
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response("Paddington", "Reading", [leg1_service]),
+            _make_leg_response("Reading", "Oxford", [leg2_service]),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(hass, api, _make_config(legs))
+        data = await coordinator._async_update_data()
+
+    assert data["connections"][0]["status"] == STATUS_CONNECTION_OK
+    assert data["journey_feasible"] is True
+    assert data["overall_status"] == STATUS_NORMAL
+
+
+async def test_min_connection_time_config_affects_feasibility(
+    hass: HomeAssistant,
+) -> None:
+    """Raising min_connection_time can turn a previously-OK buffer into Missed."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    leg1_service = _make_service("svc1")
+    # 7-minute buffer: feasible under the default 5-minute minimum, infeasible
+    # once min_connection_time is raised to 10.
+    leg2_service = _make_service("svc2", scheduled_departure="09:37")
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response("Paddington", "Reading", [leg1_service]),
+            _make_leg_response("Reading", "Oxford", [leg2_service]),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass, api, _make_config(legs, min_connection_time=10)
+        )
+        data = await coordinator._async_update_data()
+
+    assert data["connections"][0]["status"] == STATUS_CONNECTION_MISSED
+    assert data["journey_feasible"] is False

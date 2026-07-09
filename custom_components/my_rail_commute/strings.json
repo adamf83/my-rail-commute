@@ -36,7 +36,8 @@
           "major_delay_threshold": "Major Delays Threshold (minutes)",
           "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates",
-          "departed_train_grace_period": "Departed Train Grace Period (minutes)"
+          "departed_train_grace_period": "Departed Train Grace Period (minutes)",
+          "min_connection_time": "Minimum Connection Time (minutes)"
         }
       },
       "return_journey": {
@@ -72,7 +73,8 @@
           "major_delay_threshold": "Major Delays Threshold (minutes)",
           "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates",
-          "departed_train_grace_period": "Departed Train Grace Period (minutes)"
+          "departed_train_grace_period": "Departed Train Grace Period (minutes)",
+          "min_connection_time": "Minimum Connection Time (minutes)"
         }
       }
     },
