@@ -22,8 +22,12 @@ from .api import (
     NationalRailAPIError,
 )
 from .const import (
+    BOARD_TYPE_ARRIVALS,
+    BOARD_TYPE_DEPARTURES,
+    CONF_ADD_ARRIVALS,
     CONF_ADD_RETURN_JOURNEY,
     CONF_ALL_DEPARTURES,
+    CONF_BOARD_TYPE,
     CONF_COMMUTE_NAME,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
@@ -542,10 +546,23 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    def _shared_entry_settings(self) -> dict[str, Any]:
+        """The common settings shared by every auto-created entry."""
+        return {
+            CONF_API_KEY: self._api_key,
+            CONF_TIME_WINDOW: self._time_window,
+            CONF_NUM_SERVICES: self._num_services,
+            CONF_NIGHT_UPDATES: self._night_updates,
+            CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
+            CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
+            CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
+            CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
+        }
+
     async def async_step_return_journey(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Offer to set up the reverse commute if it doesn't already exist.
+        """Offer to set up companion boards (return journey and/or arrivals) if they don't already exist.
 
         Args:
             user_input: User input data
@@ -553,45 +570,62 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         Returns:
             FlowResult for creating entry
         """
+        existing = list(self._async_current_entries())
         reverse_unique_id = f"{self._destination}_{self._origin}"
-        reverse_exists = any(
-            entry.unique_id == reverse_unique_id
-            for entry in self._async_current_entries()
-        )
+        reverse_exists = any(e.unique_id == reverse_unique_id for e in existing)
+        arrivals_unique_id = f"{self._origin}_{self._destination}_arr"
+        arrivals_exists = any(e.unique_id == arrivals_unique_id for e in existing)
 
-        if reverse_exists:
+        # Nothing left to offer — just create the primary entry.
+        if reverse_exists and arrivals_exists:
             return self._create_entry()
 
         if user_input is not None:
-            if user_input.get(CONF_ADD_RETURN_JOURNEY, False):
+            if not reverse_exists and user_input.get(CONF_ADD_RETURN_JOURNEY, False):
                 self.hass.async_create_task(
                     self.hass.config_entries.flow.async_init(
                         DOMAIN,
                         context={"source": config_entries.SOURCE_IMPORT},
                         data={
-                            CONF_API_KEY: self._api_key,
+                            **self._shared_entry_settings(),
                             CONF_ORIGIN: self._destination,
                             CONF_DESTINATION: self._origin,
                             CONF_COMMUTE_NAME: f"{self._destination_name} to {self._origin_name}",
-                            CONF_TIME_WINDOW: self._time_window,
-                            CONF_NUM_SERVICES: self._num_services,
-                            CONF_NIGHT_UPDATES: self._night_updates,
-                            CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
-                            CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
-                            CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
-                            CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
+                        },
+                    )
+                )
+            if not arrivals_exists and user_input.get(CONF_ADD_ARRIVALS, False):
+                self.hass.async_create_task(
+                    self.hass.config_entries.flow.async_init(
+                        DOMAIN,
+                        context={"source": config_entries.SOURCE_IMPORT},
+                        data={
+                            **self._shared_entry_settings(),
+                            CONF_ORIGIN: self._origin,
+                            CONF_DESTINATION: self._destination,
+                            CONF_BOARD_TYPE: BOARD_TYPE_ARRIVALS,
+                            CONF_COMMUTE_NAME: (
+                                f"Arrivals at {self._origin_name} "
+                                f"from {self._destination_name}"
+                            ),
                         },
                     )
                 )
             return self._create_entry()
 
+        schema: dict[Any, Any] = {}
+        if not reverse_exists:
+            schema[vol.Required(CONF_ADD_RETURN_JOURNEY, default=True)] = (
+                selector.BooleanSelector()
+            )
+        if not arrivals_exists:
+            schema[vol.Required(CONF_ADD_ARRIVALS, default=False)] = (
+                selector.BooleanSelector()
+            )
+
         return self.async_show_form(
             step_id="return_journey",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ADD_RETURN_JOURNEY, default=True): selector.BooleanSelector(),
-                }
-            ),
+            data_schema=vol.Schema(schema),
             description_placeholders={
                 "origin": self._origin_name,
                 "destination": self._destination_name,
@@ -601,19 +635,23 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_import(
         self, user_input: dict[str, Any]
     ) -> FlowResult:
-        """Handle automatic creation of a return journey config entry.
+        """Handle automatic creation of a companion config entry (return journey or arrivals board).
 
-        Called programmatically (no UI) when the user accepts the return
-        journey offer. Creates the reverse route using the same settings.
+        Called programmatically (no UI) when the user accepts an offer in the
+        companion-boards step. Aborts if the entry already exists.
 
         Args:
-            user_input: Pre-populated entry data for the reverse route
+            user_input: Pre-populated entry data
 
         Returns:
             FlowResult creating the entry, or aborting if already configured
         """
+        # Arrivals entries share the same CRS pair as the departures entry, so
+        # keep their unique_id distinct with an _arr suffix.
+        board_type = user_input.get(CONF_BOARD_TYPE, BOARD_TYPE_DEPARTURES)
+        suffix = "_arr" if board_type == BOARD_TYPE_ARRIVALS else ""
         await self.async_set_unique_id(
-            f"{user_input[CONF_ORIGIN]}_{user_input[CONF_DESTINATION]}"
+            f"{user_input[CONF_ORIGIN]}_{user_input[CONF_DESTINATION]}{suffix}"
         )
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
@@ -624,17 +662,11 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _create_entry(self) -> FlowResult:
         """Create the config entry using stored instance variables."""
         data: dict[str, Any] = {
-            CONF_API_KEY: self._api_key,
+            **self._shared_entry_settings(),
             CONF_ORIGIN: self._origin,
             CONF_ALL_DEPARTURES: self._all_departures,
+            CONF_BOARD_TYPE: BOARD_TYPE_DEPARTURES,
             CONF_COMMUTE_NAME: self._commute_name,
-            CONF_TIME_WINDOW: self._time_window,
-            CONF_NUM_SERVICES: self._num_services,
-            CONF_NIGHT_UPDATES: self._night_updates,
-            CONF_SEVERE_DELAY_THRESHOLD: self._severe_delay_threshold,
-            CONF_MAJOR_DELAY_THRESHOLD: self._major_delay_threshold,
-            CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
-            CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
         }
         if self._destination:
             data[CONF_DESTINATION] = self._destination

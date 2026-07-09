@@ -175,7 +175,7 @@ class TestGetDepartureBoard:
         """Test successful departure board retrieval."""
         with aioresponses() as mock:
             mock.get(
-                f"{API_BASE_URL}/GetDepBoardWithDetails/PAD?filterCrs=RDG&timeWindow=60&numRows=10",
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/PAD?timeWindow=60&numRows=10&filterCrs=RDG&filterType=to",
                 payload=departure_board_response,
                 status=200,
             )
@@ -191,7 +191,7 @@ class TestGetDepartureBoard:
         """Test that station codes are converted to uppercase."""
         with aioresponses() as mock:
             mock.get(
-                f"{API_BASE_URL}/GetDepBoardWithDetails/PAD?filterCrs=RDG&timeWindow=60&numRows=10",
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/PAD?timeWindow=60&numRows=10&filterCrs=RDG&filterType=to",
                 payload={"GetStationBoardResult": {"locationName": "Test", "trainServices": []}},
                 status=200,
             )
@@ -203,7 +203,7 @@ class TestGetDepartureBoard:
         """Test departure board with custom parameters."""
         with aioresponses() as mock:
             mock.get(
-                f"{API_BASE_URL}/GetDepBoardWithDetails/PAD?filterCrs=RDG&timeWindow=120&numRows=5",
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/PAD?timeWindow=120&numRows=5&filterCrs=RDG&filterType=to",
                 payload={"GetStationBoardResult": {"locationName": "Test", "trainServices": []}},
                 status=200,
             )
@@ -211,11 +211,23 @@ class TestGetDepartureBoard:
             await api_client.get_departure_board("PAD", "RDG", time_window=120, num_rows=5)
             # If no exception, test passes
 
+    async def test_get_departure_board_all_services(self, api_client):
+        """All-departures mode (no destination): no filterCrs or filterType params."""
+        with aioresponses() as mock:
+            mock.get(
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/PAD?timeWindow=60&numRows=10",
+                payload={"GetStationBoardResult": {"locationName": "Test", "trainServices": []}},
+                status=200,
+            )
+
+            await api_client.get_departure_board("PAD")
+            # If no exception, test passes
+
     async def test_get_departure_board_invalid_station(self, api_client):
         """Test departure board with invalid station."""
         with aioresponses() as mock:
             mock.get(
-                f"{API_BASE_URL}/GetDepBoardWithDetails/XYZ?filterCrs=RDG&timeWindow=60&numRows=10",
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/XYZ?timeWindow=60&numRows=10&filterCrs=RDG&filterType=to",
                 status=404,
             )
 
@@ -226,7 +238,7 @@ class TestGetDepartureBoard:
         """Test departure board with 400 bad request (invalid CRS code)."""
         with aioresponses() as mock:
             mock.get(
-                f"{API_BASE_URL}/GetDepBoardWithDetails/PAS?filterCrs=RDG&timeWindow=60&numRows=10",
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/PAS?timeWindow=60&numRows=10&filterCrs=RDG&filterType=to",
                 status=400,
             )
 
@@ -237,7 +249,7 @@ class TestGetDepartureBoard:
         """Test departure board raises NationalRailAPIError when API returns invalid JSON."""
         with aioresponses() as mock:
             mock.get(
-                f"{API_BASE_URL}/GetDepBoardWithDetails/PAD?filterCrs=WAT&timeWindow=60&numRows=10",
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/PAD?timeWindow=60&numRows=10&filterCrs=WAT&filterType=to",
                 status=200,
                 body="<html>Bad Gateway</html>",
                 content_type="text/html",
@@ -245,6 +257,112 @@ class TestGetDepartureBoard:
 
             with pytest.raises(NationalRailAPIError):
                 await api_client.get_departure_board("PAD", "WAT")
+
+
+class TestGetArrivalBoard:
+    """Tests for the arrivals board (trains arriving from a partner station)."""
+
+    async def test_get_arrival_board_success(self, api_client):
+        """Arrivals board uses filterType=from and parses arrival times."""
+        payload = {
+            "GetStationBoardResult": {
+                "locationName": "Hometown",
+                "filterLocationName": "Worktown",
+                "generatedAt": "2024-01-15T18:00:00",
+                "trainServices": {
+                    "service": [
+                        {
+                            "sta": "18:20",
+                            "eta": "On time",
+                            "platform": "2",
+                            "operator": "Great Western Railway",
+                            "serviceID": "arr1",
+                            "origin": [{"locationName": "Worktown", "crs": "WRK"}],
+                            "destination": [{"locationName": "Endville", "crs": "END"}],
+                            "previousCallingPoints": [
+                                {
+                                    "callingPoint": [
+                                        {
+                                            "locationName": "Worktown",
+                                            "crs": "WRK",
+                                            "st": "17:50",
+                                            "et": "On time",
+                                        }
+                                    ]
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }
+        }
+        with aioresponses() as mock:
+            mock.get(
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/HOM?filterCrs=WRK&filterType=from&timeWindow=60&numRows=10",
+                payload=payload,
+                status=200,
+            )
+
+            result = await api_client.get_departure_board("HOM", "WRK", arrivals_mode=True)
+
+            assert result["location_name"] == "Hometown"
+            assert result["destination_name"] == "Worktown"
+            assert len(result["services"]) == 1
+            svc = result["services"][0]
+            assert svc["scheduled_arrival"] == "18:20"
+            # "On time" normalises to the scheduled clock time.
+            assert svc["estimated_arrival"] == "18:20"
+            assert svc["status"] == "on_time"
+            # Departed-partner time comes from previousCallingPoints.
+            assert svc["scheduled_departure"] == "17:50"
+
+    async def test_get_arrival_board_uppercase(self, api_client):
+        """Station codes are upper-cased in the arrivals request."""
+        with aioresponses() as mock:
+            mock.get(
+                f"{API_BASE_URL}/GetArrDepBoardWithDetails/HOM?filterCrs=WRK&filterType=from&timeWindow=60&numRows=10",
+                payload={"GetStationBoardResult": {"locationName": "Test", "trainServices": []}},
+                status=200,
+            )
+
+            await api_client.get_departure_board("hom", "wrk", arrivals_mode=True)
+            # If no exception, test passes
+
+
+class TestParseArrivalService:
+    """Tests for arrival service parsing."""
+
+    async def test_parse_arrival_delayed(self, api_client):
+        """A delayed arrival reports estimated arrival, delay, and left-partner time."""
+        service_data = {
+            "sta": "18:35",
+            "eta": "18:41",
+            "platform": "1",
+            "operator": "Great Western Railway",
+            "serviceID": "late",
+            "origin": [{"locationName": "Worktown", "crs": "WRK"}],
+            "destination": [{"locationName": "Hometown", "crs": "HOM"}],
+            "previousCallingPoints": [
+                {
+                    "callingPoint": [
+                        {"locationName": "Worktown", "crs": "WRK", "st": "18:05", "et": "18:09"}
+                    ]
+                }
+            ],
+        }
+        result = api_client._parse_service(service_data, arrivals_mode=True, destination_crs="WRK")
+        assert result is not None
+        assert result["scheduled_arrival"] == "18:35"
+        assert result["estimated_arrival"] == "18:41"
+        assert result["delay_minutes"] == 6
+        assert result["status"] == "delayed"
+        assert result["expected_departure"] == "18:09"
+        assert result["origin"] == "Worktown"
+
+    async def test_parse_arrival_drops_service_without_sta(self, api_client):
+        """A departure-only row (no sta) is not an inbound arrival and is dropped."""
+        result = api_client._parse_service({"std": "18:25", "etd": "On time"}, arrivals_mode=True, destination_crs="WRK")
+        assert result is None
 
 
 class TestParseService:
@@ -366,7 +484,32 @@ class TestParseService:
         result = api_client._parse_service(service_data, destination_crs="LBG")
 
         assert result["scheduled_arrival"] == "08:45"
-        assert result["estimated_arrival"] == "On time"
+        # "On time" is a status word, not a clock time: estimated_arrival
+        # normalizes to the scheduled arrival (mirrors expected_departure).
+        assert result["estimated_arrival"] == "08:45"
+
+    async def test_parse_service_keeps_real_estimated_arrival_when_delayed(self, api_client):
+        """A real ``et`` clock time at the destination is preserved as estimated_arrival."""
+        service_data = {
+            "std": "08:32",
+            "etd": "08:40",
+            "platform": "3",
+            "operator": "Thameslink",
+            "serviceID": "service_delayed",
+            "destination": [{"locationName": "Cannon Street", "crs": "CST"}],
+            "subsequentCallingPoints": [
+                {
+                    "callingPoint": [
+                        {"locationName": "London Bridge", "crs": "LBG", "st": "08:45", "et": "08:51"},
+                    ]
+                }
+            ],
+        }
+
+        result = api_client._parse_service(service_data, destination_crs="LBG")
+
+        assert result["scheduled_arrival"] == "08:45"
+        assert result["estimated_arrival"] == "08:51"
 
     async def test_parse_service_falls_back_to_last_point_when_no_destination_crs(self, api_client):
         """Test that scheduled_arrival falls back to the last calling point when no destination_crs given."""
@@ -562,8 +705,8 @@ class TestAPIRetryLogic:
             assert result is True
 
 
-class TestParseDepartureBoard:
-    """Tests for departure board parsing."""
+class TestParseBoard:
+    """Tests for board parsing (departures and arrivals)."""
 
     async def test_parse_departure_board_with_services(
         self, api_client, departure_board_response
