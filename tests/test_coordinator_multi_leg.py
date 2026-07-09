@@ -845,3 +845,50 @@ async def test_catchable_ignores_cancelled_and_departed_next_leg_services(
 
     assert data["legs"][0]["services"][0]["catchable"] is True
     assert data["legs"][0]["services"][0]["service_id"] == "svc1"
+
+
+async def test_only_catchable_services_emptying_leg_still_reports_missed_connection(
+    hass: HomeAssistant,
+) -> None:
+    """When only_catchable_services filters a leg's services down to nothing,
+    the connection status must still reflect the real missed connection
+    instead of falling back to a falsely-reassuring Unknown, since the
+    feasibility check should use the full candidate pool, not the
+    display-filtered list."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    # Arrives 09:30; outgoing's only departure is 09:20 - before arrival, so
+    # this is genuinely uncatchable and gets filtered out of display.
+    leg1_service = _make_service("svc1")
+    outgoing = _make_service("svc2", scheduled_departure="09:20")
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response("Paddington", "Reading", [leg1_service]),
+            _make_leg_response("Reading", "Oxford", [outgoing]),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass, api, _make_config(legs, only_catchable_services=True)
+        )
+        data = await coordinator._async_update_data()
+
+    # Displayed list is empty and says so explicitly, not "No trains found".
+    assert data["legs"][0]["services"] == []
+    assert data["legs"][0]["next_train"] is None
+    assert data["legs"][0]["summary"] == "No catchable connections"
+    assert data["legs"][0]["overall_status"] == STATUS_NORMAL
+
+    # But the connection evaluation still sees the real missed connection.
+    assert data["connections"][0]["status"] == STATUS_CONNECTION_MISSED
+    assert data["connections"][0]["feasible"] is False
+    assert data["journey_feasible"] is False
+    assert data["overall_status"] == STATUS_CRITICAL
