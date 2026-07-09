@@ -37,6 +37,7 @@ from .const import (
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
+    CONF_ONLY_CATCHABLE_SERVICES,
     CONF_ORIGIN,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
@@ -202,6 +203,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._minor_delay_threshold: int | None = None
         self._departed_train_grace_period: int | None = None
         self._min_connection_time: int | None = None
+        self._only_catchable_services: bool = False
         self._nearby_stations: list[tuple[float, dict]] | None = None
         self._legs: list[dict[str, Any]] = []
         self._leg_names: list[dict[str, str]] = []
@@ -550,6 +552,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._min_connection_time = user_input.get(
                         CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME
                     )
+                    self._only_catchable_services = user_input.get(
+                        CONF_ONLY_CATCHABLE_SERVICES, False
+                    )
 
                 # Set unique ID based on the full route chain (all-departures
                 # gets a distinct suffix; single-leg routes match the historical format)
@@ -665,6 +670,12 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     mode=selector.NumberSelectorMode.SLIDER,
                 ),
             )
+            schema_dict[
+                vol.Required(
+                    CONF_ONLY_CATCHABLE_SERVICES,
+                    default=False,
+                )
+            ] = selector.BooleanSelector()
 
         data_schema = vol.Schema(schema_dict)
 
@@ -723,6 +734,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     reverse_data[CONF_LEGS] = reversed_legs
                     reverse_data[CONF_MIN_CONNECTION_TIME] = (
                         self._min_connection_time or DEFAULT_MIN_CONNECTION_TIME
+                    )
+                    reverse_data[CONF_ONLY_CATCHABLE_SERVICES] = (
+                        self._only_catchable_services
                     )
 
                 self.hass.async_create_task(
@@ -795,6 +809,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data[CONF_MIN_CONNECTION_TIME] = (
                 self._min_connection_time or DEFAULT_MIN_CONNECTION_TIME
             )
+            data[CONF_ONLY_CATCHABLE_SERVICES] = self._only_catchable_services
         return self.async_create_entry(title=self._commute_name, data=data)
 
     @staticmethod
@@ -977,6 +992,15 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 ),
             )
+            schema_dict[
+                vol.Required(
+                    CONF_ONLY_CATCHABLE_SERVICES,
+                    default=options.get(
+                        CONF_ONLY_CATCHABLE_SERVICES,
+                        current_data.get(CONF_ONLY_CATCHABLE_SERVICES, False),
+                    ),
+                )
+            ] = selector.BooleanSelector()
 
         data_schema = vol.Schema(schema_dict)
 

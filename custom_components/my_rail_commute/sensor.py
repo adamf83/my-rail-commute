@@ -20,6 +20,7 @@ from .const import (
     ATTR_CANCELLATION_REASON,
     ATTR_CANCELLED_COUNT,
     ATTR_CANCELLED_COUNT_TODAY,
+    ATTR_CATCHABLE,
     ATTR_CONNECTIONS,
     ATTR_DAILY_BREAKDOWN,
     ATTR_DELAY_MINUTES,
@@ -126,6 +127,7 @@ def _build_all_trains_attribute(services: list[dict[str, Any]]) -> list[dict[str
             "estimated_arrival": service.get("estimated_arrival"),
             "scheduled_arrival": service.get("scheduled_arrival"),
             "destination": service.get("destination"),
+            ATTR_CATCHABLE: service.get("catchable"),
         }
 
         # Add optional fields if present
@@ -719,6 +721,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_CALLING_POINTS: train.get("calling_points", []),
             ATTR_SCHEDULED_ARRIVAL: train.get("scheduled_arrival"),
             ATTR_ESTIMATED_ARRIVAL: train.get("estimated_arrival"),
+            ATTR_CATCHABLE: train.get("catchable"),
             "last_updated": self.coordinator.data.get("last_updated"),
         }
 
@@ -935,6 +938,7 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_CALLING_POINTS: train.get("calling_points", []),
             ATTR_SCHEDULED_ARRIVAL: train.get("scheduled_arrival"),
             ATTR_ESTIMATED_ARRIVAL: train.get("estimated_arrival"),
+            ATTR_CATCHABLE: train.get("catchable"),
             "last_updated": self.coordinator.data.get("last_updated"),
         }
 

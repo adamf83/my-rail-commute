@@ -25,6 +25,7 @@ from .const import (
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
+    CONF_ONLY_CATCHABLE_SERVICES,
     CONF_ORIGIN,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
@@ -144,6 +145,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self.min_connection_time = int(
             config.get(CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME)
+        )
+        self.only_catchable_services = bool(
+            config.get(CONF_ONLY_CATCHABLE_SERVICES, False)
         )
 
         # Delay thresholds (user-configurable)
@@ -271,13 +275,21 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 # Fetch each leg sequentially (not concurrently) so the shared
                 # API client's rate limiter can throttle correctly between calls
                 raw_leg_data: list[dict[str, Any]] = []
+                # When filtering to catchable-only, over-fetch so there's a
+                # large enough candidate pool to filter down from and match
+                # connections against (mirrors all_departures' over-fetch).
+                leg_num_rows = (
+                    max(self.num_services, 20)
+                    if self.only_catchable_services
+                    else self.num_services
+                )
                 for leg in self.legs:
                     raw_leg_data.append(
                         await self.api.get_departure_board(
                             leg["origin"],
                             destination_crs=leg["destination"],
                             time_window=self.time_window,
-                            num_rows=self.num_services,
+                            num_rows=leg_num_rows,
                         )
                     )
 
@@ -497,24 +509,40 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         return groups
 
     def _parse_leg_data(
-        self, leg: dict[str, Any], raw_data: dict[str, Any]
+        self,
+        leg: dict[str, Any],
+        raw_data: dict[str, Any],
+        next_leg_services: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Parse and enrich a single leg's raw API data.
 
         Args:
             leg: The leg's {"origin", "destination"} config
             raw_data: Raw departure board data for this leg
+            next_leg_services: Raw services of the following leg, used to tag
+                each service as catchable/not; None for the last leg (or a
+                single-leg journey), which has nothing to connect onto
 
         Returns:
             Parsed per-leg data with additional calculated fields
         """
         services = raw_data.get("services", [])
 
-        # Limit to configured number of services
-        services = services[: self.num_services]
+        if next_leg_services is not None:
+            # Evaluate (and optionally filter) against the full raw list
+            # before truncating to num_services, so a catchable service
+            # further down isn't cut off by a low num_services setting.
+            services = self._filter_departed_trains(services)
+            self._tag_catchable(services, next_leg_services)
+            if self.only_catchable_services:
+                services = [s for s in services if s["catchable"]]
+            services = services[: self.num_services]
+        else:
+            # Limit to configured number of services
+            services = services[: self.num_services]
 
-        # Filter out trains that have already departed
-        services = self._filter_departed_trains(services)
+            # Filter out trains that have already departed
+            services = self._filter_departed_trains(services)
 
         # Calculate statistics
         on_time_count = sum(1 for s in services if s.get("status") == STATUS_ON_TIME)
@@ -576,6 +604,60 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             return STATUS_NORMAL
         return max(statuses, key=_STATUS_ORDER.index)
 
+    def _find_connecting_service(
+        self, arrival: str | None, candidates: list[dict[str, Any]]
+    ) -> tuple[dict[str, Any] | None, int | None]:
+        """Find the first candidate service catchable from an arrival time.
+
+        Args:
+            arrival: HH:MM arrival time at the interchange, or None
+            candidates: Non-cancelled outgoing services to search, in
+                departure order
+
+        Returns:
+            (service, buffer_minutes) for the first candidate departing at
+            least `min_connection_time` minutes after `arrival`, or
+            (None, None) if none qualify
+        """
+        if not arrival or not _TIME_FORMAT_RE.match(arrival):
+            return None, None
+        for service in candidates:
+            departure = service.get("expected_departure") or service.get(
+                "scheduled_departure"
+            )
+            buffer_minutes = self._minutes_between(arrival, departure)
+            if buffer_minutes is None:
+                continue
+            if buffer_minutes >= self.min_connection_time:
+                return service, buffer_minutes
+        return None, None
+
+    def _tag_catchable(
+        self,
+        services: list[dict[str, Any]],
+        next_leg_services: list[dict[str, Any]],
+    ) -> None:
+        """Tag each service in-place with whether its connection is catchable.
+
+        Matches against the next leg's full raw candidate pool rather than
+        its own (possibly truncated/filtered) displayed list, so a train
+        isn't excluded from consideration just because of display limits.
+
+        Args:
+            services: This leg's services, already filtered for departed
+                trains
+            next_leg_services: The following leg's raw services
+        """
+        candidates = self._filter_departed_trains(
+            [s for s in next_leg_services if not s.get("is_cancelled", False)]
+        )
+        for service in services:
+            arrival = service.get("estimated_arrival") or service.get(
+                "scheduled_arrival"
+            )
+            matched, _ = self._find_connecting_service(arrival, candidates)
+            service["catchable"] = matched is not None
+
     def _evaluate_connection(
         self, leg_from: dict[str, Any], leg_to: dict[str, Any]
     ) -> dict[str, Any]:
@@ -620,21 +702,14 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         base["arrival_time"] = arrival
 
         next_train_to = leg_to.get("next_train")
-        matched_service = None
-        matched_buffer = None
-        for service in leg_to.get("services", []):
-            if service.get("is_cancelled", False):
-                continue
-            departure = service.get("expected_departure") or service.get(
-                "scheduled_departure"
-            )
-            buffer_minutes = self._minutes_between(arrival, departure)
-            if buffer_minutes is None:
-                continue
-            if buffer_minutes >= self.min_connection_time:
-                matched_service = service
-                matched_buffer = buffer_minutes
-                break
+        candidates = [
+            service
+            for service in leg_to.get("services", [])
+            if not service.get("is_cancelled", False)
+        ]
+        matched_service, matched_buffer = self._find_connecting_service(
+            arrival, candidates
+        )
 
         if matched_service is None:
             base["feasible"] = False
@@ -710,8 +785,14 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Multi-leg journey: data is a list of raw responses, one per leg
         leg_results = [
-            self._parse_leg_data(leg, raw)
-            for leg, raw in zip(self.legs, data, strict=True)
+            self._parse_leg_data(
+                leg,
+                raw,
+                next_leg_services=(
+                    data[i + 1].get("services") if i + 1 < len(data) else None
+                ),
+            )
+            for i, (leg, raw) in enumerate(zip(self.legs, data, strict=True))
         ]
 
         all_services: list[dict[str, Any]] = []

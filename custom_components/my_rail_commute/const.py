@@ -23,6 +23,7 @@ CONF_LEGS: Final = "legs"
 CONF_ADD_LEG: Final = "add_leg"
 CONF_LEG_DESTINATION: Final = "leg_destination"
 CONF_MIN_CONNECTION_TIME: Final = "min_connection_time"
+CONF_ONLY_CATCHABLE_SERVICES: Final = "only_catchable_services"
 
 # Legacy config keys (for migration)
 CONF_DISRUPTION_SINGLE_DELAY: Final = "disruption_single_delay"
@@ -148,6 +149,7 @@ ATTR_LEGS: Final = "legs"
 ATTR_IS_MULTI_LEG: Final = "is_multi_leg"
 ATTR_CONNECTIONS: Final = "connections"
 ATTR_JOURNEY_FEASIBLE: Final = "journey_feasible"
+ATTR_CATCHABLE: Final = "catchable"
 
 # API Error Messages
 ERROR_AUTH: Final = "Authentication failed. Please check your API key."
