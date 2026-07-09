@@ -10,7 +10,7 @@
       },
       "stations": {
         "title": "Configure Route",
-        "description": "Select your origin station from the nearby stations list, or type a 3-letter CRS code directly (e.g., PAD for Paddington). Enable 'All Departures' to show every train from this station, or enter a destination CRS code to track a specific route.",
+        "description": "Select your origin station from the nearby stations list, or type a 3-letter CRS code directly (e.g., PAD for Paddington). Enable 'All Departures' to show every train from this station, or enter your final destination CRS code to track a specific route. If your journey needs a change of train, you'll be able to add the interchange station(s) next — Origin and Destination here stay fixed as your journey's overall start and end.",
         "data": {
           "origin": "Origin Station",
           "all_departures": "Show All Departures (no destination filter)",
@@ -19,10 +19,10 @@
       },
       "add_leg": {
         "title": "Add a Connecting Leg",
-        "description": "Your journey so far: {itinerary}\n\nDoes this journey require a change of train? Add a connecting leg departing from {destination}, or continue if your itinerary is complete.",
+        "description": "Your journey so far: {itinerary}, travelling to {destination}.\n\nDo you need to change trains somewhere between {current_point} and {destination}? Enter that interchange station, or continue if you travel straight through.",
         "data": {
           "add_leg": "Add a connecting leg",
-          "leg_destination": "Next Destination Station (CRS Code)"
+          "leg_destination": "Change At Station (CRS Code)"
         }
       },
       "settings": {
@@ -52,6 +52,7 @@
       "cannot_connect": "Unable to connect to Rail API. Please try again later.",
       "invalid_station": "Invalid station code. Please use a valid 3-letter CRS code.",
       "same_station": "Origin and destination stations must be different.",
+      "same_as_destination": "This is already your final destination — continue instead of adding it as a connecting leg.",
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
       "unknown": "An unexpected error occurred. Please try again."
     },

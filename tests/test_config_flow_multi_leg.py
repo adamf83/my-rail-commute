@@ -98,43 +98,47 @@ class TestAddLegStep:
         assert result["data"][CONF_ORIGIN] == "PAD"
         assert result["data"][CONF_DESTINATION] == "RDG"
 
-    async def test_adding_two_legs_persists_full_chain(self, hass: HomeAssistant):
-        """Accepting add_leg twice then declining persists a 3-leg CONF_LEGS list."""
+    async def test_adding_two_legs_inserts_interchanges_before_destination(
+        self, hass: HomeAssistant
+    ):
+        """Accepting add_leg twice then declining inserts interchanges before
+        the fixed destination chosen in the stations step, rather than
+        appending stations past it."""
         result = await _start_flow(hass)
 
         with patch(
             "custom_components.my_rail_commute.config_flow.validate_stations",
             return_value={
                 "origin_name": "London Paddington",
-                "destination_name": "Reading",
+                "destination_name": "Birmingham New Street",
             },
         ):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
-                user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
+                user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "BHM"},
             )
         assert result["step_id"] == "add_leg"
 
         with patch(
             "custom_components.my_rail_commute.config_flow.validate_stations",
-            return_value={"origin_name": "Reading", "destination_name": "Oxford"},
+            return_value={"origin_name": "London Paddington", "destination_name": "Reading"},
         ):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
-                user_input={CONF_ADD_LEG: True, CONF_LEG_DESTINATION: "OXF"},
+                user_input={CONF_ADD_LEG: True, CONF_LEG_DESTINATION: "RDG"},
             )
         assert result["step_id"] == "add_leg"
 
         with patch(
             "custom_components.my_rail_commute.config_flow.validate_stations",
             return_value={
-                "origin_name": "Oxford",
-                "destination_name": "Birmingham New Street",
+                "origin_name": "Reading",
+                "destination_name": "Oxford",
             },
         ):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
-                user_input={CONF_ADD_LEG: True, CONF_LEG_DESTINATION: "BHM"},
+                user_input={CONF_ADD_LEG: True, CONF_LEG_DESTINATION: "OXF"},
             )
         assert result["step_id"] == "add_leg"
 
@@ -156,12 +160,42 @@ class TestAddLegStep:
             {"origin": "RDG", "destination": "OXF"},
             {"origin": "OXF", "destination": "BHM"},
         ]
-        # Convenience flat origin/destination reflect the whole chain's endpoints
+        # The originally configured origin/destination stay fixed as the
+        # journey's overall endpoints, regardless of how many interchanges
+        # were inserted between them.
         assert result["data"][CONF_ORIGIN] == "PAD"
         assert result["data"][CONF_DESTINATION] == "BHM"
 
+    async def test_add_leg_rejects_final_destination_as_interchange(
+        self, hass: HomeAssistant
+    ):
+        """Entering the fixed final destination as a connecting leg errors."""
+        result = await _start_flow(hass)
+
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_stations",
+            return_value={
+                "origin_name": "London Paddington",
+                "destination_name": "Reading",
+            },
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
+            )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_ADD_LEG: True, CONF_LEG_DESTINATION: "RDG"},
+        )
+
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["step_id"] == "add_leg"
+        assert result["errors"] == {CONF_LEG_DESTINATION: "same_as_destination"}
+
     async def test_unique_id_is_chain_based_for_multi_leg(self, hass: HomeAssistant):
-        """The config entry's unique_id embeds every station in the chain."""
+        """The config entry's unique_id embeds every station in the chain,
+        with the inserted interchange ordered before the fixed destination."""
         result = await _start_flow(hass)
 
         with patch(
@@ -178,7 +212,7 @@ class TestAddLegStep:
 
         with patch(
             "custom_components.my_rail_commute.config_flow.validate_stations",
-            return_value={"origin_name": "Reading", "destination_name": "Oxford"},
+            return_value={"origin_name": "London Paddington", "destination_name": "Oxford"},
         ):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
@@ -195,7 +229,7 @@ class TestAddLegStep:
 
         entries = hass.config_entries.async_entries(DOMAIN)
         assert len(entries) == 1
-        assert entries[0].unique_id == "PAD_RDG_OXF"
+        assert entries[0].unique_id == "PAD_OXF_RDG"
 
     async def test_add_leg_same_station_shows_error(self, hass: HomeAssistant):
         """Requesting a leg destination identical to the current station errors."""
@@ -219,7 +253,7 @@ class TestAddLegStep:
         ):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
-                user_input={CONF_ADD_LEG: True, CONF_LEG_DESTINATION: "RDG"},
+                user_input={CONF_ADD_LEG: True, CONF_LEG_DESTINATION: "PAD"},
             )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
@@ -273,7 +307,7 @@ class TestMultiLegReturnJourney:
 
         with patch(
             "custom_components.my_rail_commute.config_flow.validate_stations",
-            return_value={"origin_name": "Reading", "destination_name": "Oxford"},
+            return_value={"origin_name": "London Paddington", "destination_name": "Oxford"},
         ):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
@@ -300,15 +334,17 @@ class TestMultiLegReturnJourney:
         assert mock_init.call_count == 1
         reverse_data = mock_init.call_args.kwargs["data"]
 
+        # Original chain is PAD -> OXF -> RDG (OXF inserted before the fixed
+        # destination); the reverse route flips both order and direction.
         assert reverse_data[CONF_LEGS] == [
-            {"origin": "OXF", "destination": "RDG"},
-            {"origin": "RDG", "destination": "PAD"},
+            {"origin": "RDG", "destination": "OXF"},
+            {"origin": "OXF", "destination": "PAD"},
         ]
-        assert reverse_data[CONF_ORIGIN] == "OXF"
+        assert reverse_data[CONF_ORIGIN] == "RDG"
         assert reverse_data[CONF_DESTINATION] == "PAD"
 
         # The reverse import flow itself must persist CONF_LEGS and use a
         # chain-based unique_id, not just the overall origin/destination
         entries = hass.config_entries.async_entries(DOMAIN)
-        reverse_entry = next(e for e in entries if e.unique_id == "OXF_RDG_PAD")
+        reverse_entry = next(e for e in entries if e.unique_id == "RDG_OXF_PAD")
         assert reverse_entry.data[CONF_LEGS] == reverse_data[CONF_LEGS]

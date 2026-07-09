@@ -274,9 +274,9 @@ To track multiple routes:
 
 Many commutes require a change of train partway through (e.g. Home → Interchange, then a different service Interchange → Work). To set one up:
 
-1. During setup, configure your first leg (origin → destination) as usual
-2. When asked "Add a connecting leg?", choose yes and enter the next destination — the new leg's origin is automatically the station you just alighted at
-3. Repeat for as many changes as your journey needs, then decline to finish the itinerary
+1. During setup, configure your Origin and final Destination as usual (e.g. Home → Work) — these stay fixed as the journey's overall endpoints
+2. When asked "Add a connecting leg?", choose yes and enter the station where you change trains (e.g. Interchange) — it's inserted between the last confirmed point and your final destination
+3. Repeat for as many changes as your journey needs, then decline once you can travel straight through to your destination
 4. Continue through the settings step as normal (time window, number of services tracked, and delay thresholds apply to every leg)
 
 A multi-leg journey creates one device with sensors per leg instead of the flat train list:
