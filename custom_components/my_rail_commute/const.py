@@ -22,6 +22,7 @@ CONF_ALL_DEPARTURES: Final = "all_departures"
 CONF_LEGS: Final = "legs"
 CONF_ADD_LEG: Final = "add_leg"
 CONF_LEG_DESTINATION: Final = "leg_destination"
+CONF_MIN_CONNECTION_TIME: Final = "min_connection_time"
 
 # Legacy config keys (for migration)
 CONF_DISRUPTION_SINGLE_DELAY: Final = "disruption_single_delay"
@@ -40,6 +41,7 @@ DEFAULT_NUM_SERVICES: Final = 3
 DEFAULT_NIGHT_UPDATES: Final = False
 DEFAULT_NAME: Final = "My Rail Commute"
 DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD: Final = 5  # minutes
+DEFAULT_MIN_CONNECTION_TIME: Final = 5  # minutes
 
 # Limits
 MIN_TIME_WINDOW: Final = 15
@@ -48,6 +50,12 @@ MIN_NUM_SERVICES: Final = 1
 MAX_NUM_SERVICES: Final = 10
 MIN_GRACE_PERIOD: Final = 0  # minutes
 MAX_GRACE_PERIOD: Final = 15  # minutes
+MIN_CONNECTION_TIME: Final = 0  # minutes
+MAX_CONNECTION_TIME: Final = 30  # minutes
+
+# Additional buffer above min_connection_time that still counts as "comfortable"
+# rather than "tight" for a connection that's otherwise on the planned train
+TIGHT_CONNECTION_MARGIN: Final = 5  # minutes
 
 # Location-based station lookup radius (miles)
 LOCATION_SEARCH_MIN_RADIUS_MILES: Final = 5.0
@@ -98,6 +106,16 @@ STATUS_MAJOR_DELAYS: Final = "Major Delays"
 STATUS_SEVERE_DISRUPTION: Final = "Severe Disruption"
 STATUS_CRITICAL: Final = "Critical"
 
+# Per-connection (interchange) feasibility statuses for multi-leg journeys.
+# These describe whether the next train on the outgoing leg is catchable
+# given the incoming leg's expected arrival, and are mapped onto the
+# STATUS_* hierarchy above when combined into the journey's overall_status.
+STATUS_CONNECTION_OK: Final = "Connection OK"
+STATUS_CONNECTION_TIGHT: Final = "Tight Connection"
+STATUS_CONNECTION_DELAYED: Final = "Delayed Connection"
+STATUS_CONNECTION_MISSED: Final = "Missed Connection"
+STATUS_CONNECTION_UNKNOWN: Final = "Unknown"
+
 # Attributes
 ATTR_ORIGIN: Final = "origin"
 ATTR_ORIGIN_NAME: Final = "origin_name"
@@ -128,6 +146,8 @@ ATTR_MAX_DELAY: Final = "max_delay_minutes"
 ATTR_DISRUPTION_REASONS: Final = "disruption_reasons"
 ATTR_LEGS: Final = "legs"
 ATTR_IS_MULTI_LEG: Final = "is_multi_leg"
+ATTR_CONNECTIONS: Final = "connections"
+ATTR_JOURNEY_FEASIBLE: Final = "journey_feasible"
 
 # API Error Messages
 ERROR_AUTH: Final = "Authentication failed. Please check your API key."

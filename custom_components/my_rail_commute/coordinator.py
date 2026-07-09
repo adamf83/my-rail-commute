@@ -21,6 +21,7 @@ from .const import (
     CONF_DISRUPTION_SINGLE_DELAY,
     CONF_LEGS,
     CONF_MAJOR_DELAY_THRESHOLD,
+    CONF_MIN_CONNECTION_TIME,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
@@ -29,6 +30,7 @@ from .const import (
     CONF_TIME_WINDOW,
     DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD,
     DEFAULT_MAJOR_DELAY_THRESHOLD,
+    DEFAULT_MIN_CONNECTION_TIME,
     DEFAULT_MINOR_DELAY_THRESHOLD,
     DEFAULT_SEVERE_DELAY_THRESHOLD,
     DOMAIN,
@@ -36,6 +38,11 @@ from .const import (
     NIGHT_HOURS,
     PEAK_HOURS,
     STATUS_CANCELLED,
+    STATUS_CONNECTION_DELAYED,
+    STATUS_CONNECTION_MISSED,
+    STATUS_CONNECTION_OK,
+    STATUS_CONNECTION_TIGHT,
+    STATUS_CONNECTION_UNKNOWN,
     STATUS_CRITICAL,
     STATUS_DELAYED,
     STATUS_MAJOR_DELAYS,
@@ -43,6 +50,7 @@ from .const import (
     STATUS_NORMAL,
     STATUS_ON_TIME,
     STATUS_SEVERE_DISRUPTION,
+    TIGHT_CONNECTION_MARGIN,
     UPDATE_INTERVAL_NIGHT,
     UPDATE_INTERVAL_OFF_PEAK,
     UPDATE_INTERVAL_PEAK,
@@ -60,6 +68,17 @@ _STATUS_ORDER: list[str] = [
     STATUS_SEVERE_DISRUPTION,
     STATUS_CRITICAL,
 ]
+
+# Maps each per-connection feasibility status onto the same severity hierarchy
+# used for per-leg statuses, so a missed connection can push the journey's
+# overall_status up without introducing a separate vocabulary.
+_CONNECTION_STATUS_SEVERITY: dict[str, str] = {
+    STATUS_CONNECTION_OK: STATUS_NORMAL,
+    STATUS_CONNECTION_UNKNOWN: STATUS_NORMAL,
+    STATUS_CONNECTION_TIGHT: STATUS_MINOR_DELAYS,
+    STATUS_CONNECTION_DELAYED: STATUS_MAJOR_DELAYS,
+    STATUS_CONNECTION_MISSED: STATUS_CRITICAL,
+}
 
 
 def build_route_id(legs: list[dict[str, Any]]) -> str:
@@ -122,6 +141,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             config.get(
                 CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
             )
+        )
+        self.min_connection_time = int(
+            config.get(CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME)
         )
 
         # Delay thresholds (user-configurable)
@@ -351,6 +373,43 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
             raise UpdateFailed(f"Failed to fetch data: {err}") from err
 
+    @staticmethod
+    def _minutes_between(start: str | None, end: str | None) -> int | None:
+        """Return the number of minutes from `start` to `end`.
+
+        Both times are "HH:MM" strings without a date component, so a naive
+        subtraction can be off by a day when the window straddles midnight
+        (e.g. start="23:55", end="00:05"). If the raw difference is more
+        than 12 hours in either direction, `end` is assumed to fall on the
+        other side of a day boundary from `start`.
+
+        Args:
+            start: Reference time, "HH:MM"
+            end: Target time, "HH:MM"
+
+        Returns:
+            Minutes from start to end (negative if end is before start), or
+            None if either time is missing or not in "HH:MM" format
+        """
+        if (
+            not start
+            or not end
+            or not _TIME_FORMAT_RE.match(start)
+            or not _TIME_FORMAT_RE.match(end)
+        ):
+            return None
+
+        start_dt = datetime.strptime(f"2000-01-01 {start}", "%Y-%m-%d %H:%M")
+        end_dt = datetime.strptime(f"2000-01-01 {end}", "%Y-%m-%d %H:%M")
+
+        diff_seconds = (end_dt - start_dt).total_seconds()
+        if diff_seconds < -12 * 3600:
+            end_dt += timedelta(days=1)
+        elif diff_seconds > 12 * 3600:
+            end_dt -= timedelta(days=1)
+
+        return int((end_dt - start_dt).total_seconds() / 60)
+
     def _filter_departed_trains(
         self, services: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
@@ -381,51 +440,25 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             else:
                 departure_time = service.get("scheduled_departure")
 
-            if not departure_time or not _TIME_FORMAT_RE.match(departure_time):
+            time_diff_minutes = self._minutes_between(current_time_str, departure_time)
+
+            if time_diff_minutes is None:
                 # If we can't parse the time, keep the service
                 filtered_services.append(service)
                 continue
 
-            try:
-                # Parse current time and departure time using a reference date
-                current_dt = datetime.strptime(
-                    f"2000-01-01 {current_time_str}", "%Y-%m-%d %H:%M"
-                )
-                departure_dt = datetime.strptime(
-                    f"2000-01-01 {departure_time}", "%Y-%m-%d %H:%M"
-                )
-
-                # Calculate time difference
-                time_diff_seconds = (departure_dt - current_dt).total_seconds()
-
-                # Handle midnight crossing: if difference > 12 hours in either direction,
-                # adjust for day boundary
-                if time_diff_seconds < -12 * 3600:
-                    # Departure is much earlier in the day, so it's actually tomorrow
-                    departure_dt += timedelta(days=1)
-                    time_diff_seconds = (departure_dt - current_dt).total_seconds()
-                elif time_diff_seconds > 12 * 3600:
-                    # Departure is much later in the day, so it's actually yesterday
-                    departure_dt -= timedelta(days=1)
-                    time_diff_seconds = (departure_dt - current_dt).total_seconds()
-
-                # Keep the train if it hasn't departed yet
-                # Add a grace period to account for update delays and slight delays
-                grace_period_seconds = self.departed_train_grace_period * 60
-                if time_diff_seconds >= -grace_period_seconds:
-                    filtered_services.append(service)
-                else:
-                    _LOGGER.debug(
-                        "Filtering out departed train: scheduled %s, expected %s, current time %s",
-                        service.get("scheduled_departure"),
-                        service.get("expected_departure"),
-                        current_time_str,
-                    )
-
-            except (ValueError, TypeError) as err:
-                # If we can't parse the time, keep the service to be safe
-                _LOGGER.debug("Could not parse departure time for filtering: %s", err)
+            # Keep the train if it hasn't departed yet
+            # Add a grace period to account for update delays and slight delays
+            grace_period_minutes = self.departed_train_grace_period
+            if time_diff_minutes >= -grace_period_minutes:
                 filtered_services.append(service)
+            else:
+                _LOGGER.debug(
+                    "Filtering out departed train: scheduled %s, expected %s, current time %s",
+                    service.get("scheduled_departure"),
+                    service.get("expected_departure"),
+                    current_time_str,
+                )
 
         return filtered_services
 
@@ -543,6 +576,91 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             return STATUS_NORMAL
         return max(statuses, key=_STATUS_ORDER.index)
 
+    def _evaluate_connection(
+        self, leg_from: dict[str, Any], leg_to: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Evaluate whether the change between two adjacent legs is feasible.
+
+        Compares the incoming leg's next train's expected arrival at the
+        interchange against the outgoing leg's tracked services, walking
+        forward to find the first non-cancelled service that leaves with at
+        least `min_connection_time` minutes to spare.
+
+        Args:
+            leg_from: Parsed data for the leg arriving at the interchange
+            leg_to: Parsed data for the leg departing from the interchange
+
+        Returns:
+            Dict describing the connection: station, timings, buffer, and a
+            status of Connection OK / Tight Connection / Delayed Connection /
+            Missed Connection / Unknown
+        """
+        base: dict[str, Any] = {
+            "station": leg_from.get("destination"),
+            "station_name": leg_from.get("destination_name"),
+            "arrival_time": None,
+            "connecting_departure": None,
+            "connecting_service_id": None,
+            "buffer_minutes": None,
+            "min_required_minutes": self.min_connection_time,
+            "feasible": None,
+            "status": STATUS_CONNECTION_UNKNOWN,
+        }
+
+        next_train_from = leg_from.get("next_train")
+        if not next_train_from:
+            return base
+
+        arrival = next_train_from.get("estimated_arrival") or next_train_from.get(
+            "scheduled_arrival"
+        )
+        if not arrival or not _TIME_FORMAT_RE.match(arrival):
+            return base
+
+        base["arrival_time"] = arrival
+
+        next_train_to = leg_to.get("next_train")
+        matched_service = None
+        matched_buffer = None
+        for service in leg_to.get("services", []):
+            if service.get("is_cancelled", False):
+                continue
+            departure = service.get("expected_departure") or service.get(
+                "scheduled_departure"
+            )
+            buffer_minutes = self._minutes_between(arrival, departure)
+            if buffer_minutes is None:
+                continue
+            if buffer_minutes >= self.min_connection_time:
+                matched_service = service
+                matched_buffer = buffer_minutes
+                break
+
+        if matched_service is None:
+            base["feasible"] = False
+            base["status"] = STATUS_CONNECTION_MISSED
+            return base
+
+        base["connecting_departure"] = matched_service.get(
+            "expected_departure"
+        ) or matched_service.get("scheduled_departure")
+        base["connecting_service_id"] = matched_service.get("service_id")
+        base["buffer_minutes"] = matched_buffer
+        base["feasible"] = True
+
+        is_next_train = (
+            next_train_to is not None
+            and matched_service.get("service_id") == next_train_to.get("service_id")
+        )
+        if not is_next_train:
+            base["status"] = STATUS_CONNECTION_DELAYED
+        elif matched_buffer >= self.min_connection_time + TIGHT_CONNECTION_MARGIN:
+            base["status"] = STATUS_CONNECTION_OK
+        else:
+            base["status"] = STATUS_CONNECTION_TIGHT
+
+        return base
+
     def _parse_data(
         self, data: dict[str, Any] | list[dict[str, Any]]
     ) -> dict[str, Any]:
@@ -619,6 +737,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 if message not in nrcc_messages:
                     nrcc_messages.append(message)
 
+        connections = [
+            self._evaluate_connection(leg_results[i], leg_results[i + 1])
+            for i in range(len(leg_results) - 1)
+        ]
+        journey_feasible = all(conn["feasible"] is not False for conn in connections)
+
         return {
             "origin": self.legs[0]["origin"],
             "origin_name": leg_results[0]["origin_name"],
@@ -636,6 +760,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "next_train": leg_results[0]["next_train"],
             "overall_status": self._combine_statuses(
                 [lr["overall_status"] for lr in leg_results]
+                + [_CONNECTION_STATUS_SEVERITY[conn["status"]] for conn in connections]
             ),
             "max_delay_minutes": max(
                 (lr["max_delay_minutes"] for lr in leg_results), default=0
@@ -647,6 +772,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "multi_destination": False,
             "is_multi_leg": True,
             "legs": leg_results,
+            "connections": connections,
+            "journey_feasible": journey_feasible,
             "last_updated": dt_util.now().isoformat(),
             "next_update": (dt_util.now() + self.update_interval).isoformat(),
             "nrcc_messages": nrcc_messages,

@@ -20,6 +20,7 @@ from .const import (
     ATTR_CANCELLATION_REASON,
     ATTR_CANCELLED_COUNT,
     ATTR_CANCELLED_COUNT_TODAY,
+    ATTR_CONNECTIONS,
     ATTR_DAILY_BREAKDOWN,
     ATTR_DELAY_MINUTES,
     ATTR_DELAY_REASON,
@@ -31,6 +32,7 @@ from .const import (
     ATTR_EXPECTED_DEPARTURE,
     ATTR_IS_CANCELLED,
     ATTR_IS_MULTI_LEG,
+    ATTR_JOURNEY_FEASIBLE,
     ATTR_LEGS,
     ATTR_ON_TIME_COUNT,
     ATTR_ON_TIME_COUNT_TODAY,
@@ -59,6 +61,10 @@ from .const import (
     CONF_COMMUTE_NAME,
     CONF_NUM_SERVICES,
     DOMAIN,
+    STATUS_CONNECTION_DELAYED,
+    STATUS_CONNECTION_MISSED,
+    STATUS_CONNECTION_OK,
+    STATUS_CONNECTION_TIGHT,
     STATUS_CRITICAL,
     STATUS_MAJOR_DELAYS,
     STATUS_MINOR_DELAYS,
@@ -168,6 +174,10 @@ async def async_setup_entry(
                 entities.append(
                     LegTrainSensor(coordinator, entry, leg_index, train_number)
                 )
+        for connection_index in range(1, len(coordinator.legs)):
+            entities.append(
+                ConnectionStatusSensor(coordinator, entry, connection_index)
+            )
     else:
         entities.append(
             NextTrainSensor(coordinator, entry)
@@ -343,6 +353,8 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
         if data.get("is_multi_leg"):
             attrs[ATTR_IS_MULTI_LEG] = True
             attrs[ATTR_LEGS] = data.get("legs", [])
+            attrs[ATTR_CONNECTIONS] = data.get("connections", [])
+            attrs[ATTR_JOURNEY_FEASIBLE] = data.get("journey_feasible")
 
         return attrs
 
@@ -1043,6 +1055,91 @@ class LegStatusSensor(CommuteStatusSensor):
         if len(legs) < self._leg_index:
             return None
         return legs[self._leg_index - 1]
+
+
+class ConnectionStatusSensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor for whether a change between two legs is achievable.
+
+    One entity per interchange in a multi-leg journey, comparing the
+    incoming leg's expected arrival against the outgoing leg's departures.
+    """
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+        connection_index: int,
+    ) -> None:
+        """Initialize the connection status sensor.
+
+        Args:
+            coordinator: Data coordinator
+            entry: Config entry
+            connection_index: 1-indexed position of this connection (the
+                change between leg `connection_index` and the next leg)
+        """
+        super().__init__(coordinator, entry)
+
+        self._connection_index = connection_index
+        self._attr_name = f"Connection {connection_index} Status"
+        self._attr_unique_id = f"{entry.entry_id}_connection{connection_index}_status"
+
+    def _get_connection_data(self) -> dict[str, Any] | None:
+        """Return this sensor's connection data, or None if unavailable."""
+        if not self.coordinator.data:
+            return None
+        connections = self.coordinator.data.get("connections", [])
+        if len(connections) < self._connection_index:
+            return None
+        return connections[self._connection_index - 1]
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor.
+
+        Returns:
+            Connection status: Connection OK, Tight Connection, Delayed
+            Connection, Missed Connection, or Unknown
+        """
+        connection = self._get_connection_data()
+        if not connection:
+            return None
+        return connection.get("status")
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on connection status.
+
+        Returns:
+            Icon string
+        """
+        status = self.native_value
+
+        if status == STATUS_CONNECTION_MISSED:
+            return "mdi:alert-octagon"
+        if status == STATUS_CONNECTION_DELAYED:
+            return "mdi:clock-alert"
+        if status == STATUS_CONNECTION_TIGHT:
+            return "mdi:clock-alert-outline"
+        if status == STATUS_CONNECTION_OK:
+            return "mdi:transit-connection-variant"
+
+        return "mdi:help-circle-outline"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes.
+
+        Returns:
+            Dictionary of attributes describing the connection
+        """
+        connection = self._get_connection_data()
+        if not connection:
+            return {}
+
+        attrs = dict(connection)
+        attrs["last_updated"] = (self.coordinator.data or {}).get("last_updated")
+        return attrs
 
 
 class LegTrainSensor(TrainSensor):

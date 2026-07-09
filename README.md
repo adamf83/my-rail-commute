@@ -277,11 +277,12 @@ Many commutes require a change of train partway through (e.g. Home → Interchan
 1. During setup, configure your Origin and final Destination as usual (e.g. Home → Work) — these stay fixed as the journey's overall endpoints
 2. When asked "Add a connecting leg?", choose yes and enter the station where you change trains (e.g. Interchange) — it's inserted between the last confirmed point and your final destination
 3. Repeat for as many changes as your journey needs, then decline once you can travel straight through to your destination
-4. Continue through the settings step as normal (time window, number of services tracked, and delay thresholds apply to every leg)
+4. Continue through the settings step as normal (time window, number of services tracked, and delay thresholds apply to every leg). For multi-leg journeys you'll also be asked for a **Minimum Connection Time** (default 5 minutes) — the buffer needed to make each change
 
 A multi-leg journey creates one device with sensors per leg instead of the flat train list:
 - `sensor.{commute_name}_leg{n}_summary`, `_status`, `_next_train`, and `_train_{m}` for each leg `n`
-- The top-level `Summary`/`Status` sensors (and the `Has Disruption` binary sensor) reflect the **whole journey**: worst-case status across all legs, and combined service counts
+- `sensor.{commute_name}_connection{n}_status` for each interchange, reporting whether that change is actually achievable given the current expected times: **Connection OK**, **Tight Connection** (feasible but under a comfortable margin), **Delayed Connection** (you'll miss the planned train but a later one still works), or **Missed Connection** (no tracked service leaves in time). Attributes include the interchange station, arrival/departure times, buffer in minutes, and the connecting service actually matched
+- The top-level `Summary`/`Status` sensors (and the `Has Disruption` binary sensor) reflect the **whole journey**: the worst case across all legs *and* all connections — so a missed connection pushes the overall status to Critical even if every individual leg is otherwise on time. The `Summary` sensor also exposes `connections` (the full per-connection detail) and `journey_feasible` (false if any connection is missed)
 
 **Note**: Historical Reliability/Delays sensors report on-time percentage and average delay for the **combined whole journey**, not broken down by individual leg.
 
