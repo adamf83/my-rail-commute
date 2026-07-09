@@ -200,6 +200,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._nearby_stations: list[tuple[float, dict]] | None = None
         self._legs: list[dict[str, Any]] = []
         self._leg_names: list[dict[str, str]] = []
+        self._current_point: str | None = None
+        self._current_point_name: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -331,6 +333,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._leg_names = [
                         {"origin_name": self._origin_name, "destination_name": None}
                     ]
+                    self._current_point = None
+                    self._current_point_name = None
                 else:
                     destination = user_input.get(CONF_DESTINATION, "").strip()
                     if not destination:
@@ -347,13 +351,12 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._origin_name = station_info["origin_name"]
                     self._destination_name = station_info["destination_name"]
                     self._all_departures = False
-                    self._legs = [{"origin": self._origin, "destination": self._destination}]
-                    self._leg_names = [
-                        {
-                            "origin_name": self._origin_name,
-                            "destination_name": self._destination_name,
-                        }
-                    ]
+                    # The itinerary is built up as connecting legs are added below;
+                    # origin and destination stay fixed as the journey's endpoints.
+                    self._legs = []
+                    self._leg_names = []
+                    self._current_point = self._origin
+                    self._current_point_name = self._origin_name
 
                 if self._all_departures:
                     return await self.async_step_settings()
@@ -409,10 +412,12 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_add_leg(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Offer to add a connecting leg (a change of train) to the journey.
+        """Offer to insert a connecting leg (a change of train) into the journey.
 
-        Loops until the user declines: each accepted leg's origin is the
-        previous leg's destination (where you alight and change trains).
+        The origin and destination chosen in the stations step stay fixed as
+        the journey's endpoints. Each accepted station here is inserted as an
+        interchange between the last confirmed point and that destination.
+        Declining closes the itinerary with a final leg to the destination.
 
         Args:
             user_input: User input data
@@ -424,21 +429,31 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             if not user_input.get(CONF_ADD_LEG, False):
+                # Close the chain with a final leg from the last confirmed
+                # point (origin, if no interchanges were inserted) to the
+                # fixed destination.
+                self._legs.append(
+                    {"origin": self._current_point, "destination": self._destination}
+                )
                 return await self.async_step_settings()
 
             try:
-                new_destination = user_input.get(CONF_LEG_DESTINATION, "").strip()
-                if not new_destination:
+                new_station = user_input.get(CONF_LEG_DESTINATION, "").strip()
+                if not new_station:
                     errors[CONF_LEG_DESTINATION] = "required"
                     raise ValueError("destination_required")
 
+                if new_station.strip().upper() == self._destination:
+                    errors[CONF_LEG_DESTINATION] = "same_as_destination"
+                    raise ValueError("same_as_destination")
+
                 station_info = await validate_stations(
-                    self.hass, self._api_key, self._destination, new_destination
+                    self.hass, self._api_key, self._current_point, new_station
                 )
 
-                new_destination = new_destination.upper()
+                new_station = new_station.upper()
                 self._legs.append(
-                    {"origin": self._destination, "destination": new_destination}
+                    {"origin": self._current_point, "destination": new_station}
                 )
                 self._leg_names.append(
                     {
@@ -446,14 +461,14 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "destination_name": station_info["destination_name"],
                     }
                 )
-                self._destination = new_destination
-                self._destination_name = station_info["destination_name"]
+                self._current_point = new_station
+                self._current_point_name = station_info["destination_name"]
 
                 # Loop back to offer another leg
                 return await self.async_step_add_leg()
 
             except ValueError as err:
-                if "destination_required" not in str(err):
+                if "destination_required" not in str(err) and "same_as_destination" not in str(err):
                     errors["base"] = "same_station"
             except InvalidStationError:
                 errors["base"] = "invalid_station"
@@ -466,8 +481,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         itinerary = " → ".join(
-            [self._leg_names[0]["origin_name"]]
-            + [n["destination_name"] for n in self._leg_names]
+            [self._origin_name] + [n["destination_name"] for n in self._leg_names]
         )
 
         return self.async_show_form(
@@ -481,6 +495,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "itinerary": itinerary,
+                "current_point": self._current_point_name,
                 "destination": self._destination_name,
             },
         )
