@@ -510,7 +510,12 @@ class NationalRailAPI:
                 calling_points = [cp.get("locationName", "") for cp in filtered]
                 if dest_point:
                     scheduled_arrival = dest_point.get("st")
-                    estimated_arrival = dest_point.get("et")
+                    # "et" is "On time"/"Delayed"/"Cancelled" etc. when not a
+                    # real time (mirrors "etd" for departures) - only keep it
+                    # when it's an actual HH:MM, otherwise fall back to the
+                    # scheduled time below.
+                    et = dest_point.get("et")
+                    estimated_arrival = et if et and _TIME_FORMAT_RE.match(et) else None
 
             return {
                 "scheduled_departure": std,

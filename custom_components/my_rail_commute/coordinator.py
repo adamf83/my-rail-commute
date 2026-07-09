@@ -534,6 +534,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             # further down isn't cut off by a low num_services setting.
             services = self._filter_departed_trains(services)
             self._tag_catchable(services, next_leg_services)
+            # Keep the full tagged candidate pool (pre-only_catchable-filter)
+            # for connection-feasibility evaluation, so enabling the display
+            # filter can't turn a real "Missed Connection" into a falsely
+            # reassuring "Unknown" just because it emptied this leg's
+            # displayed service list.
+            connection_pool = services
             if self.only_catchable_services:
                 services = [s for s in services if s["catchable"]]
             services = services[: self.num_services]
@@ -543,6 +549,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
             # Filter out trains that have already departed
             services = self._filter_departed_trains(services)
+            connection_pool = services
 
         # Calculate statistics
         on_time_count = sum(1 for s in services if s.get("status") == STATUS_ON_TIME)
@@ -562,6 +569,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             summary = self._build_all_departures_summary(
                 len(services), on_time_count, delayed_count, cancelled_count
             )
+        elif not services and connection_pool:
+            # only_catchable_services filtered out every real service on this
+            # leg — say so explicitly rather than the misleading "No trains
+            # found" (which implies no service is running at all).
+            summary = "No catchable connections"
         else:
             summary = self._build_summary(on_time_count, delayed_count, cancelled_count)
 
@@ -570,6 +582,15 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         for service in services:
             if not service.get("is_cancelled", False):
                 next_train = service
+                break
+
+        # Next train from the full (pre-only_catchable-filter) candidate
+        # pool, used for connection-feasibility evaluation so that filtering
+        # this leg's displayed services can't hide a real missed connection.
+        connection_next_train = None
+        for service in connection_pool:
+            if not service.get("is_cancelled", False):
+                connection_next_train = service
                 break
 
         return {
@@ -589,6 +610,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "disruption_reasons": delay_info["disruption_reasons"],
             "summary": summary,
             "nrcc_messages": raw_data.get("nrcc_messages", []),
+            "connection_services": connection_pool,
+            "connection_next_train": connection_next_train,
         }
 
     def _combine_statuses(self, statuses: list[str]) -> str:
@@ -689,7 +712,16 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "status": STATUS_CONNECTION_UNKNOWN,
         }
 
-        next_train_from = leg_from.get("next_train")
+        # Use the full (pre-only_catchable-filter) candidate pool rather than
+        # the possibly display-filtered "next_train"/"services", so enabling
+        # only_catchable_services can't turn a real missed connection into a
+        # falsely reassuring "Unknown" just because it emptied a leg's
+        # displayed service list. Falls back to the display fields when the
+        # connection-specific ones aren't present (e.g. hand-built dicts in
+        # tests, or a last leg with nothing to connect onto).
+        next_train_from = leg_from.get("connection_next_train") or leg_from.get(
+            "next_train"
+        )
         if not next_train_from:
             return base
 
@@ -701,10 +733,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         base["arrival_time"] = arrival
 
-        next_train_to = leg_to.get("next_train")
+        next_train_to = leg_to.get("connection_next_train") or leg_to.get("next_train")
         candidates = [
             service
-            for service in leg_to.get("services", [])
+            for service in (
+                leg_to.get("connection_services") or leg_to.get("services", [])
+            )
             if not service.get("is_cancelled", False)
         ]
         matched_service, matched_buffer = self._find_connecting_service(

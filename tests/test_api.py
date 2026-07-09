@@ -366,7 +366,33 @@ class TestParseService:
         result = api_client._parse_service(service_data, destination_crs="LBG")
 
         assert result["scheduled_arrival"] == "08:45"
-        assert result["estimated_arrival"] == "On time"
+        # "et" of "On time" isn't a real time - falls back to the scheduled
+        # arrival, same as how "etd" is handled for departures.
+        assert result["estimated_arrival"] == "08:45"
+
+    async def test_parse_service_uses_real_estimated_arrival_when_delayed(self, api_client):
+        """A genuinely delayed calling point's "et" (a real HH:MM) is kept,
+        not overridden by the scheduled time."""
+        service_data = {
+            "std": "08:32",
+            "etd": "08:40",
+            "platform": "3",
+            "operator": "Thameslink",
+            "serviceID": "service_ecr_lbg_delayed",
+            "destination": [{"locationName": "Cannon Street", "crs": "CST"}],
+            "subsequentCallingPoints": [
+                {
+                    "callingPoint": [
+                        {"locationName": "London Bridge", "crs": "LBG", "st": "08:45", "et": "08:53"},
+                    ]
+                }
+            ],
+        }
+
+        result = api_client._parse_service(service_data, destination_crs="LBG")
+
+        assert result["scheduled_arrival"] == "08:45"
+        assert result["estimated_arrival"] == "08:53"
 
     async def test_parse_service_falls_back_to_last_point_when_no_destination_crs(self, api_client):
         """Test that scheduled_arrival falls back to the last calling point when no destination_crs given."""
