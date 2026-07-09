@@ -20,6 +20,7 @@ from custom_components.my_rail_commute.const import (
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
+    CONF_ONLY_CATCHABLE_SERVICES,
     CONF_ORIGIN,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
@@ -109,7 +110,10 @@ def _make_leg_response(origin_name: str, destination_name: str, services: list) 
 
 
 def _make_config(
-    legs: list[dict], min_connection_time: int = DEFAULT_MIN_CONNECTION_TIME
+    legs: list[dict],
+    min_connection_time: int = DEFAULT_MIN_CONNECTION_TIME,
+    num_services: int = 3,
+    only_catchable_services: bool = False,
 ) -> dict:
     """Build a multi-leg config dict."""
     return {
@@ -118,12 +122,13 @@ def _make_config(
         CONF_DESTINATION: legs[-1]["destination"],
         CONF_LEGS: legs,
         CONF_TIME_WINDOW: 60,
-        CONF_NUM_SERVICES: 3,
+        CONF_NUM_SERVICES: num_services,
         CONF_NIGHT_UPDATES: True,
         CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
         CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
         CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
         CONF_MIN_CONNECTION_TIME: min_connection_time,
+        CONF_ONLY_CATCHABLE_SERVICES: only_catchable_services,
     }
 
 
@@ -610,3 +615,233 @@ async def test_min_connection_time_config_affects_feasibility(
 
     assert data["connections"][0]["status"] == STATUS_CONNECTION_MISSED
     assert data["journey_feasible"] is False
+
+
+async def test_only_catchable_services_defaults_to_false(
+    hass: HomeAssistant,
+) -> None:
+    """The coordinator defaults only_catchable_services to False when absent."""
+    api = AsyncMock()
+    coordinator = NationalRailDataUpdateCoordinator(
+        hass,
+        api,
+        {
+            CONF_API_KEY: "test_key",
+            CONF_ORIGIN: "PAD",
+            CONF_DESTINATION: "RDG",
+            CONF_TIME_WINDOW: 60,
+            CONF_NUM_SERVICES: 3,
+            CONF_NIGHT_UPDATES: True,
+            CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
+            CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
+            CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
+        },
+    )
+
+    assert coordinator.only_catchable_services is False
+
+
+async def test_non_last_leg_services_are_tagged_catchable(
+    hass: HomeAssistant,
+) -> None:
+    """Every non-final leg's services get a catchable flag, even when the
+    filter itself is off."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    catchable_service = _make_service("svc1")  # arrives 09:30
+    # Arrives at 09:50, after outgoing's only departure (09:45) — unreachable.
+    uncatchable_service = _make_service(
+        "svc1b", scheduled_departure="09:20", scheduled_arrival="09:50"
+    )
+    outgoing = _make_service("svc2", scheduled_departure="09:45")  # only reachable from svc1
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response(
+                "Paddington", "Reading", [catchable_service, uncatchable_service]
+            ),
+            _make_leg_response("Reading", "Oxford", [outgoing]),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass, api, _make_config(legs, num_services=2)
+        )
+        data = await coordinator._async_update_data()
+
+    leg1_services = {s["service_id"]: s["catchable"] for s in data["legs"][0]["services"]}
+    assert leg1_services == {"svc1": True, "svc1b": False}
+    # The last leg has nothing to connect onto, so it isn't tagged.
+    assert "catchable" not in data["legs"][1]["services"][0]
+
+
+async def test_only_catchable_services_filters_before_truncation(
+    hass: HomeAssistant,
+) -> None:
+    """Non-catchable services are dropped before num_services truncates the list,
+    so a catchable train further down isn't cut off by a low num_services."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    # Arrives 09:50 - after outgoing's only departure (09:45) - unreachable.
+    unreachable_first = _make_service(
+        "svc1a", scheduled_departure="08:55", scheduled_arrival="09:50"
+    )
+    # Arrives 09:30 - 15-minute buffer before outgoing's 09:45 departure.
+    reachable_second = _make_service(
+        "svc1b", scheduled_departure="09:00", scheduled_arrival="09:30"
+    )
+    outgoing = _make_service("svc2", scheduled_departure="09:45")
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response(
+                "Paddington", "Reading", [unreachable_first, reachable_second]
+            ),
+            _make_leg_response("Reading", "Oxford", [outgoing]),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass,
+            api,
+            _make_config(legs, num_services=1, only_catchable_services=True),
+        )
+        data = await coordinator._async_update_data()
+
+    leg1_services = data["legs"][0]["services"]
+    assert len(leg1_services) == 1
+    assert leg1_services[0]["service_id"] == "svc1b"
+    assert data["legs"][0]["next_train"]["service_id"] == "svc1b"
+
+
+async def test_only_catchable_services_disabled_keeps_uncatchable_services(
+    hass: HomeAssistant,
+) -> None:
+    """With the filter off, uncatchable services stay in the list (just tagged)."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    # Arrives 09:50 - after outgoing's only departure (09:45) - unreachable.
+    unreachable_first = _make_service(
+        "svc1a", scheduled_departure="08:55", scheduled_arrival="09:50"
+    )
+    reachable_second = _make_service(
+        "svc1b", scheduled_departure="09:00", scheduled_arrival="09:30"
+    )
+    outgoing = _make_service("svc2", scheduled_departure="09:45")
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response(
+                "Paddington", "Reading", [unreachable_first, reachable_second]
+            ),
+            _make_leg_response("Reading", "Oxford", [outgoing]),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass,
+            api,
+            _make_config(legs, num_services=1, only_catchable_services=False),
+        )
+        data = await coordinator._async_update_data()
+
+    leg1_services = data["legs"][0]["services"]
+    assert len(leg1_services) == 1
+    assert leg1_services[0]["service_id"] == "svc1a"
+    assert leg1_services[0]["catchable"] is False
+
+
+async def test_only_catchable_services_over_fetches_departure_rows(
+    hass: HomeAssistant,
+) -> None:
+    """Enabling the filter requests more rows per leg so there's a large
+    enough pool to filter down from and match connections against."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response("Paddington", "Reading", [_make_service("svc1")]),
+            _make_leg_response(
+                "Reading", "Oxford", [_make_service("svc2", scheduled_departure="09:45")]
+            ),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass,
+            api,
+            _make_config(legs, num_services=3, only_catchable_services=True),
+        )
+        await coordinator._async_update_data()
+
+    for call in api.get_departure_board.call_args_list:
+        assert call.kwargs["num_rows"] == 20
+
+
+async def test_catchable_ignores_cancelled_and_departed_next_leg_services(
+    hass: HomeAssistant,
+) -> None:
+    """A cancelled or already-departed service on the next leg doesn't count
+    as a viable connection, even if its scheduled time would otherwise match."""
+    legs = [
+        {"origin": "PAD", "destination": "RDG"},
+        {"origin": "RDG", "destination": "OXF"},
+    ]
+    leg1_service = _make_service("svc1")  # arrives 09:30
+    cancelled_outgoing = _make_service(
+        "svc2a", scheduled_departure="09:45", status=STATUS_CANCELLED
+    )
+    departed_outgoing = _make_service("svc2b", scheduled_departure="07:00")
+    viable_outgoing = _make_service("svc2c", scheduled_departure="09:50")
+
+    api = AsyncMock()
+    api.get_departure_board = AsyncMock(
+        side_effect=[
+            _make_leg_response("Paddington", "Reading", [leg1_service]),
+            _make_leg_response(
+                "Reading",
+                "Oxford",
+                [cancelled_outgoing, departed_outgoing, viable_outgoing],
+            ),
+        ]
+    )
+
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=_TEST_TIME,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass, api, _make_config(legs, num_services=1, only_catchable_services=True)
+        )
+        data = await coordinator._async_update_data()
+
+    assert data["legs"][0]["services"][0]["catchable"] is True
+    assert data["legs"][0]["services"][0]["service_id"] == "svc1"
