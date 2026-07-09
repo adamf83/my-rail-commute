@@ -469,16 +469,26 @@ async def test_evaluate_connection_missed_when_no_service_has_enough_buffer(
     assert conn["connecting_service_id"] is None
 
 
-async def test_evaluate_connection_delayed_when_a_later_train_is_needed(
+async def test_evaluate_connection_delayed_when_a_real_delay_forces_a_later_train(
     two_leg_coordinator: NationalRailDataUpdateCoordinator,
 ) -> None:
-    """Feasible only on a later train than the outgoing leg's own next train."""
-    leg_from = _make_leg_result("RDG", "Reading", _make_service("svc1"))
-    unreachable_next = _make_service("svc2a", scheduled_departure="09:20")
+    """A late-running incoming leg misses the service it would otherwise have
+    caught on schedule, and needs a later one instead."""
+    leg_from = _make_leg_result(
+        "RDG",
+        "Reading",
+        _make_service(
+            "svc1",
+            status=STATUS_DELAYED,
+            scheduled_arrival="09:20",
+            estimated_arrival="09:30",
+        ),
+    )
+    would_have_caught_on_schedule = _make_service("svc2a", scheduled_departure="09:30")
     reachable_later = _make_service("svc2b", scheduled_departure="09:50")
     leg_to = {
-        "services": [unreachable_next, reachable_later],
-        "next_train": unreachable_next,
+        "services": [would_have_caught_on_schedule, reachable_later],
+        "next_train": would_have_caught_on_schedule,
     }
 
     conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
@@ -486,6 +496,28 @@ async def test_evaluate_connection_delayed_when_a_later_train_is_needed(
     assert conn["status"] == STATUS_CONNECTION_DELAYED
     assert conn["feasible"] is True
     assert conn["connecting_service_id"] == "svc2b"
+
+
+async def test_evaluate_connection_not_delayed_when_earlier_trains_are_just_too_soon(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """Skipping several on-time-but-too-soon departures for a later,
+    comfortably-reachable on-time train is normal timetable spacing, not a
+    delay - even though it isn't the outgoing leg's literal next train."""
+    leg_from = _make_leg_result("RDG", "Reading", _make_service("svc1"))
+    too_soon_1 = _make_service("svc2a", scheduled_departure="09:31")
+    too_soon_2 = _make_service("svc2b", scheduled_departure="09:33")
+    comfortable = _make_service("svc2c", scheduled_departure="09:45")
+    leg_to = {
+        "services": [too_soon_1, too_soon_2, comfortable],
+        "next_train": too_soon_1,
+    }
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_OK
+    assert conn["feasible"] is True
+    assert conn["connecting_service_id"] == "svc2c"
 
 
 async def test_evaluate_connection_unknown_when_incoming_leg_has_no_next_train(
