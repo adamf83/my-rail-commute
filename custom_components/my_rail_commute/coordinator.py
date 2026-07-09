@@ -1,4 +1,5 @@
 """Data update coordinator for My Rail Commute integration."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +19,7 @@ from .const import (
     CONF_DESTINATION,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
+    CONF_LEGS,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
@@ -50,6 +52,34 @@ _LOGGER = logging.getLogger(__name__)
 
 _TIME_FORMAT_RE = re.compile(r"^\d{2}:\d{2}$")
 
+# Severity ranking used to combine per-leg statuses into one overall status
+_STATUS_ORDER: list[str] = [
+    STATUS_NORMAL,
+    STATUS_MINOR_DELAYS,
+    STATUS_MAJOR_DELAYS,
+    STATUS_SEVERE_DISRUPTION,
+    STATUS_CRITICAL,
+]
+
+
+def build_route_id(legs: list[dict[str, Any]]) -> str:
+    """Build a stable, chain-based route identifier from a list of legs.
+
+    For a single leg with a destination this is byte-identical to the
+    historical `f"{origin}_{destination}"` format. Every intermediate
+    station is embedded in the id, so different multi-leg chains that
+    happen to share the same overall origin/destination never collide.
+
+    Args:
+        legs: List of {"origin": crs, "destination": crs|None} dicts
+
+    Returns:
+        Route identifier string
+    """
+    if len(legs) == 1 and legs[0]["destination"] is None:
+        return f"{legs[0]['origin']}_all_departures"
+    return "_".join([legs[0]["origin"]] + [leg["destination"] for leg in legs])
+
 
 class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Rail data."""
@@ -77,11 +107,21 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         self.origin = config[CONF_ORIGIN]
         self.destination = config.get(CONF_DESTINATION)  # None when all_departures=True
         self.all_departures = config.get(CONF_ALL_DEPARTURES, False)
+
+        # Journey legs: a list of {"origin": crs, "destination": crs|None} dicts.
+        # Falls back to a single leg built from origin/destination when CONF_LEGS
+        # is absent (all existing single-leg entries), so behaviour is unchanged.
+        self.legs: list[dict[str, Any]] = config.get(CONF_LEGS) or [
+            {"origin": self.origin, "destination": self.destination}
+        ]
+        self.is_multi_leg = len(self.legs) > 1
         self.time_window = int(config[CONF_TIME_WINDOW])
         self.num_services = int(config[CONF_NUM_SERVICES])
         self.night_updates_enabled = config.get(CONF_NIGHT_UPDATES, False)
         self.departed_train_grace_period = int(
-            config.get(CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD)
+            config.get(
+                CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
+            )
         )
 
         # Delay thresholds (user-configurable)
@@ -99,7 +139,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 config.get(CONF_DISRUPTION_SINGLE_DELAY, DEFAULT_SEVERE_DELAY_THRESHOLD)
             )
             self.major_delay_threshold = int(
-                config.get(CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD)
+                config.get(
+                    CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD
+                )
             )
             self.minor_delay_threshold = DEFAULT_MINOR_DELAY_THRESHOLD
 
@@ -155,7 +197,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             if not self.night_updates_enabled:
                 # Use a moderate interval so coordinator can reschedule when morning comes
                 # This ensures manual refresh works and automatic updates resume at dawn
-                _LOGGER.debug("Using longer interval during night time (manual refresh still works)")
+                _LOGGER.debug(
+                    "Using longer interval during night time (manual refresh still works)"
+                )
                 return timedelta(hours=1)
             return UPDATE_INTERVAL_NIGHT
 
@@ -187,7 +231,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         async with self._update_interval_lock:
             new_interval = self._get_update_interval()
             if new_interval != self.update_interval:
-                _LOGGER.debug("Updating interval from %s to %s", self.update_interval, new_interval)
+                _LOGGER.debug(
+                    "Updating interval from %s to %s",
+                    self.update_interval,
+                    new_interval,
+                )
                 self.update_interval = new_interval
 
         try:
@@ -197,23 +245,48 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 self.destination or "ALL",
             )
 
-            # When showing all departures, fetch enough rows to populate multiple destinations
-            num_rows = max(self.num_services, 20) if self.all_departures else self.num_services
+            if self.is_multi_leg:
+                # Fetch each leg sequentially (not concurrently) so the shared
+                # API client's rate limiter can throttle correctly between calls
+                raw_leg_data: list[dict[str, Any]] = []
+                for leg in self.legs:
+                    raw_leg_data.append(
+                        await self.api.get_departure_board(
+                            leg["origin"],
+                            destination_crs=leg["destination"],
+                            time_window=self.time_window,
+                            num_rows=self.num_services,
+                        )
+                    )
 
-            # Fetch departure board
-            data = await self.api.get_departure_board(
-                self.origin,
-                destination_crs=self.destination,
-                time_window=self.time_window,
-                num_rows=num_rows,
-            )
+                self.origin_name = raw_leg_data[0].get("location_name", self.origin)
+                self.destination_name = raw_leg_data[-1].get(
+                    "destination_name", self.destination
+                )
 
-            # Store station names
-            self.origin_name = data.get("location_name", self.origin)
-            self.destination_name = data.get("destination_name", self.destination)
+                parsed_data = self._parse_data(raw_leg_data)
+            else:
+                # When showing all departures, fetch enough rows to populate multiple destinations
+                num_rows = (
+                    max(self.num_services, 20)
+                    if self.all_departures
+                    else self.num_services
+                )
 
-            # Parse and enrich data
-            parsed_data = self._parse_data(data)
+                # Fetch departure board
+                data = await self.api.get_departure_board(
+                    self.origin,
+                    destination_crs=self.destination,
+                    time_window=self.time_window,
+                    num_rows=num_rows,
+                )
+
+                # Store station names
+                self.origin_name = data.get("location_name", self.origin)
+                self.destination_name = data.get("destination_name", self.destination)
+
+                # Parse and enrich data
+                parsed_data = self._parse_data(data)
 
             # Record observation in historical stats store
             if self.stats_store is not None:
@@ -232,8 +305,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         except NationalRailAPIError as err:
             self._failed_updates += 1
-            _LOGGER.error("Error fetching data: %s (attempt %s/%s)",
-                         err, self._failed_updates, self._max_failed_updates)
+            _LOGGER.error(
+                "Error fetching data: %s (attempt %s/%s)",
+                err,
+                self._failed_updates,
+                self._max_failed_updates,
+            )
 
             # If we've failed too many times, raise UpdateFailed
             if self._failed_updates >= self._max_failed_updates:
@@ -248,29 +325,35 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                         if age > timedelta(hours=2):
                             _LOGGER.warning(
                                 "Cached data is too old (%s hours), not returning stale data",
-                                age.total_seconds() / 3600
+                                age.total_seconds() / 3600,
                             )
-                            raise UpdateFailed(f"Failed to fetch data and cached data too old: {err}") from err
+                            raise UpdateFailed(
+                                f"Failed to fetch data and cached data too old: {err}"
+                            ) from err
                     else:
                         _LOGGER.error(
                             "Failed to parse last_updated timestamp '%s', cannot verify data age",
-                            self.data.get("last_updated")
+                            self.data.get("last_updated"),
                         )
                 except (ValueError, TypeError) as parse_err:
                     _LOGGER.error(
                         "Error parsing last_updated timestamp '%s': %s - cannot verify data age",
                         self.data.get("last_updated"),
-                        parse_err
+                        parse_err,
                     )
 
             # Otherwise, return last known data if available and recent
             if self.data:
-                _LOGGER.warning("Using last known data after failed update (data age: unverified)")
+                _LOGGER.warning(
+                    "Using last known data after failed update (data age: unverified)"
+                )
                 return self.data
 
             raise UpdateFailed(f"Failed to fetch data: {err}") from err
 
-    def _filter_departed_trains(self, services: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _filter_departed_trains(
+        self, services: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Filter out trains that have already departed.
 
         Args:
@@ -305,8 +388,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
             try:
                 # Parse current time and departure time using a reference date
-                current_dt = datetime.strptime(f"2000-01-01 {current_time_str}", "%Y-%m-%d %H:%M")
-                departure_dt = datetime.strptime(f"2000-01-01 {departure_time}", "%Y-%m-%d %H:%M")
+                current_dt = datetime.strptime(
+                    f"2000-01-01 {current_time_str}", "%Y-%m-%d %H:%M"
+                )
+                departure_dt = datetime.strptime(
+                    f"2000-01-01 {departure_time}", "%Y-%m-%d %H:%M"
+                )
 
                 # Calculate time difference
                 time_diff_seconds = (departure_dt - current_dt).total_seconds()
@@ -342,7 +429,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         return filtered_services
 
-    def _build_services_by_destination(self, services: list[dict[str, Any]]) -> dict[str, Any]:
+    def _build_services_by_destination(
+        self, services: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Group services by their destination and compute per-destination status.
 
         Args:
@@ -374,16 +463,19 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         return groups
 
-    def _parse_data(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Parse and enrich API data.
+    def _parse_leg_data(
+        self, leg: dict[str, Any], raw_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Parse and enrich a single leg's raw API data.
 
         Args:
-            data: Raw API data
+            leg: The leg's {"origin", "destination"} config
+            raw_data: Raw departure board data for this leg
 
         Returns:
-            Parsed data with additional calculated fields
+            Parsed per-leg data with additional calculated fields
         """
-        services = data.get("services", [])
+        services = raw_data.get("services", [])
 
         # Limit to configured number of services
         services = services[: self.num_services]
@@ -392,12 +484,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         services = self._filter_departed_trains(services)
 
         # Calculate statistics
-        on_time_count = sum(
-            1 for s in services if s.get("status") == STATUS_ON_TIME
-        )
-        delayed_count = sum(
-            1 for s in services if s.get("status") == STATUS_DELAYED
-        )
+        on_time_count = sum(1 for s in services if s.get("status") == STATUS_ON_TIME)
+        delayed_count = sum(1 for s in services if s.get("status") == STATUS_DELAYED)
         cancelled_count = sum(
             1 for s in services if s.get("status") == STATUS_CANCELLED
         )
@@ -410,7 +498,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Build summary
         if self.all_departures:
-            summary = self._build_all_departures_summary(len(services), on_time_count, delayed_count, cancelled_count)
+            summary = self._build_all_departures_summary(
+                len(services), on_time_count, delayed_count, cancelled_count
+            )
         else:
             summary = self._build_summary(on_time_count, delayed_count, cancelled_count)
 
@@ -421,14 +511,13 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 next_train = service
                 break
 
-        result: dict[str, Any] = {
-            "origin": self.origin,
-            "origin_name": self.origin_name or self.origin,
-            "destination": self.destination,
-            "destination_name": self.destination_name,
-            "time_window": self.time_window,
+        return {
+            "origin": leg["origin"],
+            "origin_name": raw_data.get("location_name", leg["origin"]),
+            "destination": leg["destination"],
+            "destination_name": raw_data.get("destination_name", leg["destination"]),
             "services_tracked": len(services),
-            "total_services_found": len(data.get("services", [])),
+            "total_services_found": len(raw_data.get("services", [])),
             "services": services,
             "on_time_count": on_time_count,
             "delayed_count": delayed_count,
@@ -438,16 +527,130 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "max_delay_minutes": delay_info["max_delay_minutes"],
             "disruption_reasons": delay_info["disruption_reasons"],
             "summary": summary,
-            "multi_destination": self.all_departures,
-            "last_updated": dt_util.now().isoformat(),
-            "next_update": (dt_util.now() + self.update_interval).isoformat(),
-            "nrcc_messages": data.get("nrcc_messages", []),
+            "nrcc_messages": raw_data.get("nrcc_messages", []),
         }
 
-        if self.all_departures:
-            result["services_by_destination"] = self._build_services_by_destination(services)
+    def _combine_statuses(self, statuses: list[str]) -> str:
+        """Combine per-leg statuses into one overall status (worst case wins).
 
-        return result
+        Args:
+            statuses: List of per-leg overall_status strings
+
+        Returns:
+            The most severe status across all legs, or Normal if empty
+        """
+        if not statuses:
+            return STATUS_NORMAL
+        return max(statuses, key=_STATUS_ORDER.index)
+
+    def _parse_data(
+        self, data: dict[str, Any] | list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Parse and enrich API data.
+
+        Args:
+            data: Raw API data for a single leg, or a list of raw API data
+                (one per leg, same order as self.legs) for a multi-leg journey
+
+        Returns:
+            Parsed data with additional calculated fields
+        """
+        if not self.is_multi_leg:
+            leg_result = self._parse_leg_data(self.legs[0], data)
+
+            result: dict[str, Any] = {
+                "origin": self.origin,
+                "origin_name": self.origin_name or self.origin,
+                "destination": self.destination,
+                "destination_name": self.destination_name,
+                "time_window": self.time_window,
+                "services_tracked": leg_result["services_tracked"],
+                "total_services_found": leg_result["total_services_found"],
+                "services": leg_result["services"],
+                "on_time_count": leg_result["on_time_count"],
+                "delayed_count": leg_result["delayed_count"],
+                "cancelled_count": leg_result["cancelled_count"],
+                "next_train": leg_result["next_train"],
+                "overall_status": leg_result[
+                    "overall_status"
+                ],  # Unified status for all sensors
+                "max_delay_minutes": leg_result["max_delay_minutes"],
+                "disruption_reasons": leg_result["disruption_reasons"],
+                "summary": leg_result["summary"],
+                "multi_destination": self.all_departures,
+                "last_updated": dt_util.now().isoformat(),
+                "next_update": (dt_util.now() + self.update_interval).isoformat(),
+                "nrcc_messages": leg_result["nrcc_messages"],
+            }
+
+            if self.all_departures:
+                result["services_by_destination"] = self._build_services_by_destination(
+                    leg_result["services"]
+                )
+
+            return result
+
+        # Multi-leg journey: data is a list of raw responses, one per leg
+        leg_results = [
+            self._parse_leg_data(leg, raw)
+            for leg, raw in zip(self.legs, data, strict=True)
+        ]
+
+        all_services: list[dict[str, Any]] = []
+        for leg_number, leg_result in enumerate(leg_results, start=1):
+            for service in leg_result["services"]:
+                tagged_service = dict(service)
+                tagged_service["leg"] = leg_number
+                all_services.append(tagged_service)
+
+        total_on_time = sum(lr["on_time_count"] for lr in leg_results)
+        total_delayed = sum(lr["delayed_count"] for lr in leg_results)
+        total_cancelled = sum(lr["cancelled_count"] for lr in leg_results)
+
+        disruption_reasons: list[str] = []
+        for lr in leg_results:
+            for reason in lr["disruption_reasons"]:
+                if reason not in disruption_reasons:
+                    disruption_reasons.append(reason)
+
+        nrcc_messages: list[Any] = []
+        for lr in leg_results:
+            for message in lr["nrcc_messages"]:
+                if message not in nrcc_messages:
+                    nrcc_messages.append(message)
+
+        return {
+            "origin": self.legs[0]["origin"],
+            "origin_name": leg_results[0]["origin_name"],
+            "destination": self.legs[-1]["destination"],
+            "destination_name": leg_results[-1]["destination_name"],
+            "time_window": self.time_window,
+            "services_tracked": sum(lr["services_tracked"] for lr in leg_results),
+            "total_services_found": sum(
+                lr["total_services_found"] for lr in leg_results
+            ),
+            "services": all_services,
+            "on_time_count": total_on_time,
+            "delayed_count": total_delayed,
+            "cancelled_count": total_cancelled,
+            "next_train": leg_results[0]["next_train"],
+            "overall_status": self._combine_statuses(
+                [lr["overall_status"] for lr in leg_results]
+            ),
+            "max_delay_minutes": max(
+                (lr["max_delay_minutes"] for lr in leg_results), default=0
+            ),
+            "disruption_reasons": disruption_reasons,
+            "summary": self._build_summary(
+                total_on_time, total_delayed, total_cancelled
+            ),
+            "multi_destination": False,
+            "is_multi_leg": True,
+            "legs": leg_results,
+            "last_updated": dt_util.now().isoformat(),
+            "next_update": (dt_util.now() + self.update_interval).isoformat(),
+            "nrcc_messages": nrcc_messages,
+        }
 
     def _collect_delay_info(self, services: list[dict[str, Any]]) -> dict[str, Any]:
         """Collect delay information for display attributes.
@@ -511,8 +714,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Get maximum delay from non-cancelled services
         max_delay = max(
-            (s.get("delay_minutes", 0) for s in services if not s.get("is_cancelled", False)),
-            default=0
+            (
+                s.get("delay_minutes", 0)
+                for s in services
+                if not s.get("is_cancelled", False)
+            ),
+            default=0,
         )
 
         # Check thresholds in priority order (high to low)

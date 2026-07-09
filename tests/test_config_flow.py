@@ -20,6 +20,7 @@ from custom_components.my_rail_commute.config_flow import (
     validate_stations,
 )
 from custom_components.my_rail_commute.const import (
+    CONF_ADD_LEG,
     CONF_ADD_RETURN_JOURNEY,
     CONF_COMMUTE_NAME,
     CONF_DESTINATION,
@@ -280,6 +281,15 @@ class TestConfigFlow:
             )
 
             assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "add_leg"
+
+            # Decline adding a connecting leg to proceed to settings
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ADD_LEG: False},
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
             assert result["step_id"] == "settings"
 
     async def test_complete_flow_creates_entry(self, hass: HomeAssistant):
@@ -308,7 +318,13 @@ class TestConfigFlow:
                 user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
             )
 
-        # Step 3: Settings
+        # Step 3: Decline adding a connecting leg
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_ADD_LEG: False},
+        )
+
+        # Step 4: Settings
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -367,6 +383,12 @@ class TestConfigFlow:
                 result["flow_id"],
                 user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
             )
+
+        # Decline adding a connecting leg
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_ADD_LEG: False},
+        )
         return result
 
     async def _submit_settings(self, hass, flow_id):
@@ -485,7 +507,13 @@ class TestConfigFlow:
                 user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
             )
 
-        # Step 3: Settings - should abort due to duplicate unique_id
+        # Step 3: Decline adding a connecting leg
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_ADD_LEG: False},
+        )
+
+        # Step 4: Settings - should abort due to duplicate unique_id
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -773,6 +801,11 @@ class TestStationsStepLocationBased:
                 user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "RDG"},
             )
 
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_ADD_LEG: False},
+        )
+
         assert result["type"] == data_entry_flow.FlowResultType.FORM
         assert result["step_id"] == "settings"
 
@@ -796,6 +829,11 @@ class TestStationsStepLocationBased:
                 result["flow_id"],
                 user_input={CONF_ORIGIN: "MAN", CONF_DESTINATION: "LDS"},
             )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_ADD_LEG: False},
+        )
 
         assert result["type"] == data_entry_flow.FlowResultType.FORM
         assert result["step_id"] == "settings"

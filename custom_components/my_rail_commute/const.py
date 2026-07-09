@@ -19,6 +19,9 @@ CONF_MINOR_DELAY_THRESHOLD: Final = "minor_delay_threshold"
 CONF_DEPARTED_TRAIN_GRACE_PERIOD: Final = "departed_train_grace_period"
 CONF_ADD_RETURN_JOURNEY: Final = "add_return_journey"
 CONF_ALL_DEPARTURES: Final = "all_departures"
+CONF_LEGS: Final = "legs"
+CONF_ADD_LEG: Final = "add_leg"
+CONF_LEG_DESTINATION: Final = "leg_destination"
 
 # Legacy config keys (for migration)
 CONF_DISRUPTION_SINGLE_DELAY: Final = "disruption_single_delay"
@@ -123,6 +126,8 @@ ATTR_DISRUPTION_TYPE: Final = "disruption_type"
 ATTR_AFFECTED_SERVICES: Final = "affected_services"
 ATTR_MAX_DELAY: Final = "max_delay_minutes"
 ATTR_DISRUPTION_REASONS: Final = "disruption_reasons"
+ATTR_LEGS: Final = "legs"
+ATTR_IS_MULTI_LEG: Final = "is_multi_leg"
 
 # API Error Messages
 ERROR_AUTH: Final = "Authentication failed. Please check your API key."

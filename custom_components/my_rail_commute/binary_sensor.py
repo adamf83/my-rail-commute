@@ -19,7 +19,7 @@ from .const import (
     CONF_COMMUTE_NAME,
     DOMAIN,
 )
-from .coordinator import NationalRailDataUpdateCoordinator
+from .coordinator import NationalRailDataUpdateCoordinator, build_route_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,12 +75,7 @@ class NationalRailCommuteBinarySensor(
 
         # Create device info
         commute_name = entry.data.get(CONF_COMMUTE_NAME, "My Rail Commute")
-        origin = coordinator.origin
-        destination = coordinator.destination
-
-        device_id = (
-            f"{origin}_{destination}" if destination else f"{origin}_all_departures"
-        )
+        device_id = build_route_id(coordinator.legs)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=commute_name,

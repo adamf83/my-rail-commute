@@ -102,6 +102,7 @@ def test_platform_change_detection_unit():
     """Unit test for platform change detection logic."""
     # Create a mock coordinator
     mock_coordinator = MagicMock()
+    mock_coordinator.legs = [{"origin": "PAD", "destination": "RDG"}]
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
@@ -181,6 +182,7 @@ def test_platform_change_from_tba_unit():
     """Unit test for platform assignment from TBA."""
     # Create a mock coordinator
     mock_coordinator = MagicMock()
+    mock_coordinator.legs = [{"origin": "PAD", "destination": "RDG"}]
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
@@ -228,6 +230,7 @@ def test_platform_change_no_service_id():
     """Unit test for handling missing/invalid service_id."""
     # Create a mock coordinator
     mock_coordinator = MagicMock()
+    mock_coordinator.legs = [{"origin": "PAD", "destination": "RDG"}]
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
@@ -294,6 +297,7 @@ def test_platform_no_change_same_service():
     """Unit test for no platform change with same service."""
     # Create a mock coordinator
     mock_coordinator = MagicMock()
+    mock_coordinator.legs = [{"origin": "PAD", "destination": "RDG"}]
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 

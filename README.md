@@ -270,6 +270,23 @@ To track multiple routes:
 2. Configure different origin/destination pairs for each
 3. Each commute will appear as a separate device with its own sensors
 
+### Multi-Leg Journeys
+
+Many commutes require a change of train partway through (e.g. Home → Interchange, then a different service Interchange → Work). To set one up:
+
+1. During setup, configure your first leg (origin → destination) as usual
+2. When asked "Add a connecting leg?", choose yes and enter the next destination — the new leg's origin is automatically the station you just alighted at
+3. Repeat for as many changes as your journey needs, then decline to finish the itinerary
+4. Continue through the settings step as normal (time window, number of services tracked, and delay thresholds apply to every leg)
+
+A multi-leg journey creates one device with sensors per leg instead of the flat train list:
+- `sensor.{commute_name}_leg{n}_summary`, `_status`, `_next_train`, and `_train_{m}` for each leg `n`
+- The top-level `Summary`/`Status` sensors (and the `Has Disruption` binary sensor) reflect the **whole journey**: worst-case status across all legs, and combined service counts
+
+**Note**: Historical Reliability/Delays sensors report on-time percentage and average delay for the **combined whole journey**, not broken down by individual leg.
+
+If you also enable "Add return journey" for a multi-leg journey, the return route reverses the entire leg sequence (e.g. Home→Interchange→Work becomes Work→Interchange→Home), not just the overall origin/destination.
+
 ## Update Intervals
 
 The integration automatically adjusts update frequency based on time of day:
