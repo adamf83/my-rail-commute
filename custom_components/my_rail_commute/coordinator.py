@@ -628,7 +628,11 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         return max(statuses, key=_STATUS_ORDER.index)
 
     def _find_connecting_service(
-        self, arrival: str | None, candidates: list[dict[str, Any]]
+        self,
+        arrival: str | None,
+        candidates: list[dict[str, Any]],
+        *,
+        scheduled_only: bool = False,
     ) -> tuple[dict[str, Any] | None, int | None]:
         """Find the first candidate service catchable from an arrival time.
 
@@ -636,6 +640,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             arrival: HH:MM arrival time at the interchange, or None
             candidates: Non-cancelled outgoing services to search, in
                 departure order
+            scheduled_only: Ignore live running estimates and match purely
+                on timetabled times. Used to work out which service would
+                have formed the connection in a delay-free world, so actual
+                delays can be told apart from ordinary timetable spacing
+                (e.g. several closely-spaced local departures before the
+                one that's actually reachable).
 
         Returns:
             (service, buffer_minutes) for the first candidate departing at
@@ -645,9 +655,12 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         if not arrival or not _TIME_FORMAT_RE.match(arrival):
             return None, None
         for service in candidates:
-            departure = service.get("expected_departure") or service.get(
-                "scheduled_departure"
-            )
+            if scheduled_only:
+                departure = service.get("scheduled_departure")
+            else:
+                departure = service.get("expected_departure") or service.get(
+                    "scheduled_departure"
+                )
             buffer_minutes = self._minutes_between(arrival, departure)
             if buffer_minutes is None:
                 continue
@@ -733,7 +746,6 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
         base["arrival_time"] = arrival
 
-        next_train_to = leg_to.get("connection_next_train") or leg_to.get("next_train")
         candidates = [
             service
             for service in (
@@ -757,11 +769,24 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         base["buffer_minutes"] = matched_buffer
         base["feasible"] = True
 
-        is_next_train = (
-            next_train_to is not None
-            and matched_service.get("service_id") == next_train_to.get("service_id")
+        # Work out which service would have formed this connection in a
+        # delay-free world (timetabled arrival vs timetabled departures
+        # only). Several closely-spaced services departing too soon after
+        # arrival to catch is normal timetable spacing, not a delay - so
+        # only label the connection "Delayed" when an actual delay is what
+        # changed which service is being used, not just because it isn't
+        # the very next departure from the interchange.
+        scheduled_arrival = next_train_from.get("scheduled_arrival") or arrival
+        scheduled_matched, _ = self._find_connecting_service(
+            scheduled_arrival, candidates, scheduled_only=True
         )
-        if not is_next_train:
+        delayed = (
+            scheduled_matched is not None
+            and scheduled_matched.get("service_id") != matched_service.get(
+                "service_id"
+            )
+        )
+        if delayed:
             base["status"] = STATUS_CONNECTION_DELAYED
         elif matched_buffer >= self.min_connection_time + TIGHT_CONNECTION_MARGIN:
             base["status"] = STATUS_CONNECTION_OK
