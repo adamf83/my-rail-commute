@@ -709,9 +709,15 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             leg_to: Parsed data for the leg departing from the interchange
 
         Returns:
-            Dict describing the connection: station, timings, buffer, and a
+            Dict describing the connection: station, timings, buffer, a
             status of Connection OK / Tight Connection / Delayed Connection /
-            Missed Connection / Unknown
+            Missed Connection / Unknown, and a human-readable
+            `connecting_summary` naming the train actually being caught.
+            "Delayed Connection" only fires when a live-running delay left
+            the matched train's buffer tight - a delay that reshuffled which
+            service gets caught but still leaves a comfortable buffer is
+            reported as "Connection OK", since the connection itself isn't
+            at risk.
         """
         base: dict[str, Any] = {
             "station": leg_from.get("destination"),
@@ -723,6 +729,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "min_required_minutes": self.min_connection_time,
             "feasible": None,
             "status": STATUS_CONNECTION_UNKNOWN,
+            "connecting_summary": None,
         }
 
         # Use the full (pre-only_catchable-filter) candidate pool rather than
@@ -760,6 +767,10 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         if matched_service is None:
             base["feasible"] = False
             base["status"] = STATUS_CONNECTION_MISSED
+            base["connecting_summary"] = (
+                f"No service leaves {base['station_name']} with enough time "
+                f"after the {arrival} arrival"
+            )
             return base
 
         base["connecting_departure"] = matched_service.get(
@@ -780,20 +791,63 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         scheduled_matched, _ = self._find_connecting_service(
             scheduled_arrival, candidates, scheduled_only=True
         )
-        delayed = (
-            scheduled_matched is not None
-            and scheduled_matched.get("service_id") != matched_service.get(
-                "service_id"
-            )
+        delayed = scheduled_matched is not None and scheduled_matched.get(
+            "service_id"
+        ) != matched_service.get("service_id")
+        comfortable = (
+            matched_buffer >= self.min_connection_time + TIGHT_CONNECTION_MARGIN
         )
-        if delayed:
+        # A shifted match only matters if it left the connection tight - if
+        # the train actually being caught still has a comfortable buffer,
+        # calling it "Delayed" overstates the risk: minute-level noise
+        # between live and scheduled times (e.g. the interchange arrival
+        # estimate wobbling by a minute) can flip which service is "first
+        # catchable" without the connection ever being in jeopardy.
+        if delayed and not comfortable:
             base["status"] = STATUS_CONNECTION_DELAYED
-        elif matched_buffer >= self.min_connection_time + TIGHT_CONNECTION_MARGIN:
+        elif comfortable:
             base["status"] = STATUS_CONNECTION_OK
         else:
             base["status"] = STATUS_CONNECTION_TIGHT
 
+        base["connecting_summary"] = self._build_connection_summary(
+            base["status"], leg_to, matched_service, matched_buffer
+        )
+
         return base
+
+    @staticmethod
+    def _build_connection_summary(
+        status: str,
+        leg_to: dict[str, Any],
+        matched_service: dict[str, Any],
+        buffer_minutes: int,
+    ) -> str:
+        """Build a human-readable summary of which train the connection catches.
+
+        Args:
+            status: The connection's resolved status
+            leg_to: Parsed data for the leg departing from the interchange
+            matched_service: The outgoing service the connection resolves to
+            buffer_minutes: Minutes of spare time before that service leaves
+
+        Returns:
+            A short sentence naming the train and buffer, for display
+            alongside the terser status attributes
+        """
+        departure = matched_service.get("expected_departure") or matched_service.get(
+            "scheduled_departure"
+        )
+        destination_name = leg_to.get("destination_name") or leg_to.get("destination")
+        qualifier = (
+            " (delayed from an earlier train)"
+            if status == STATUS_CONNECTION_DELAYED
+            else ""
+        )
+        return (
+            f"Catching the {departure} to {destination_name} "
+            f"({buffer_minutes}m buffer){qualifier}"
+        )
 
     def _parse_data(
         self, data: dict[str, Any] | list[dict[str, Any]]
