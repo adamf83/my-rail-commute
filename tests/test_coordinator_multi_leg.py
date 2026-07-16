@@ -469,11 +469,48 @@ async def test_evaluate_connection_missed_when_no_service_has_enough_buffer(
     assert conn["connecting_service_id"] is None
 
 
-async def test_evaluate_connection_delayed_when_a_real_delay_forces_a_later_train(
+async def test_evaluate_connection_delayed_when_a_real_delay_leaves_a_tight_buffer(
     two_leg_coordinator: NationalRailDataUpdateCoordinator,
 ) -> None:
     """A late-running incoming leg misses the service it would otherwise have
-    caught on schedule, and needs a later one instead."""
+    caught on schedule, and the later one it needs instead only leaves a
+    tight buffer - so the delay genuinely put the connection at risk."""
+    leg_from = _make_leg_result(
+        "RDG",
+        "Reading",
+        _make_service(
+            "svc1",
+            status=STATUS_DELAYED,
+            scheduled_arrival="09:20",
+            estimated_arrival="09:30",
+        ),
+    )
+    would_have_caught_on_schedule = _make_service("svc2a", scheduled_departure="09:30")
+    reachable_later = _make_service("svc2b", scheduled_departure="09:36")
+    leg_to = {
+        "services": [would_have_caught_on_schedule, reachable_later],
+        "next_train": would_have_caught_on_schedule,
+        "destination_name": "Oxford",
+    }
+
+    conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
+
+    assert conn["status"] == STATUS_CONNECTION_DELAYED
+    assert conn["feasible"] is True
+    assert conn["connecting_service_id"] == "svc2b"
+    assert conn["buffer_minutes"] == 6
+    assert conn["connecting_summary"] == (
+        "Catching the 09:36 to Oxford (6m buffer) (delayed from an earlier train)"
+    )
+
+
+async def test_evaluate_connection_ok_despite_real_delay_when_buffer_stays_comfortable(
+    two_leg_coordinator: NationalRailDataUpdateCoordinator,
+) -> None:
+    """A late-running incoming leg misses the service it would otherwise have
+    caught on schedule, but the later one it needs instead still leaves a
+    comfortable buffer - the connection itself was never at risk, so this
+    should read as OK rather than raising a false alarm."""
     leg_from = _make_leg_result(
         "RDG",
         "Reading",
@@ -489,13 +526,16 @@ async def test_evaluate_connection_delayed_when_a_real_delay_forces_a_later_trai
     leg_to = {
         "services": [would_have_caught_on_schedule, reachable_later],
         "next_train": would_have_caught_on_schedule,
+        "destination_name": "Oxford",
     }
 
     conn = two_leg_coordinator._evaluate_connection(leg_from, leg_to)
 
-    assert conn["status"] == STATUS_CONNECTION_DELAYED
+    assert conn["status"] == STATUS_CONNECTION_OK
     assert conn["feasible"] is True
     assert conn["connecting_service_id"] == "svc2b"
+    assert conn["buffer_minutes"] == 20
+    assert conn["connecting_summary"] == "Catching the 09:50 to Oxford (20m buffer)"
 
 
 async def test_evaluate_connection_not_delayed_when_earlier_trains_are_just_too_soon(
