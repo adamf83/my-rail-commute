@@ -58,7 +58,9 @@ async def test_load_existing_data():
                                          "total_delay_minutes": 10,
                                          "on_time_pct": 83.33, "avg_delay_minutes": 10.0}}}
     store = _make_store(load_return=existing)
-    await store.async_load()
+    with patch("custom_components.my_rail_commute.statistics.dt_util") as mock_dt:
+        mock_dt.now.return_value.date.return_value = date.fromisoformat("2026-05-17")
+        await store.async_load()
     assert "2026-05-17" in store._data
     assert store._data["2026-05-17"]["on_time_count"] == 5
 
