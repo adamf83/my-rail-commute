@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -297,6 +298,9 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
             "last_updated": data.get("last_updated"),
             "next_update": data.get("next_update"),
             "all_trains": all_trains,  # Complete train data for custom cards
+            # JSON string form for consumers (e.g. ESPHome text_sensor) that can
+            # only pull a flat string attribute and parse it themselves
+            "all_trains_json": json.dumps(all_trains, default=str),
         }
 
         # Include historical stats so the card can read them directly from this
@@ -1013,6 +1017,7 @@ class LegSummarySensor(NationalRailCommuteEntity, SensorEntity):
             return {}
 
         services = leg_data.get("services", [])
+        all_trains = _build_all_trains_attribute(services)
 
         return {
             ATTR_ORIGIN: leg_data.get("origin"),
@@ -1024,7 +1029,8 @@ class LegSummarySensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_ON_TIME_COUNT: leg_data.get("on_time_count"),
             ATTR_DELAYED_COUNT: leg_data.get("delayed_count"),
             ATTR_CANCELLED_COUNT: leg_data.get("cancelled_count"),
-            "all_trains": _build_all_trains_attribute(services),
+            "all_trains": all_trains,
+            "all_trains_json": json.dumps(all_trains, default=str),
             "last_updated": (self.coordinator.data or {}).get("last_updated"),
         }
 

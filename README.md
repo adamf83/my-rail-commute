@@ -33,6 +33,7 @@ The integration creates multiple sensors for each configured commute:
   - On-time/delayed/cancelled counts
   - Time window setting
   - `all_trains`: Complete array of all tracked trains (useful for custom Lovelace cards)
+  - `all_trains_json`: Same data as `all_trains`, serialized as a JSON string (useful for consumers like ESPHome that can only read a flat string attribute)
   - Last updated and next update timestamps
 
 ### 2. Commute Status Sensor
