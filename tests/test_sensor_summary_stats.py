@@ -149,6 +149,58 @@ def _make_stats_store(
     return store
 
 
+def test_summary_exposes_nrcc_messages():
+    """CommuteSummarySensor surfaces NRCC disruption messages as an attribute."""
+    sensor, coordinator = _make_sensor()
+    coordinator.data["nrcc_messages"] = [
+        "Rail replacement buses operate between Ely and Cambridge due to a points failure."
+    ]
+
+    attrs = sensor.extra_state_attributes
+
+    assert attrs["nrcc_messages"] == [
+        "Rail replacement buses operate between Ely and Cambridge due to a points failure."
+    ]
+
+
+def test_summary_nrcc_messages_defaults_to_empty_list():
+    """CommuteSummarySensor exposes an empty list when there are no NRCC messages."""
+    sensor, _ = _make_sensor()
+
+    attrs = sensor.extra_state_attributes
+
+    assert attrs["nrcc_messages"] == []
+
+
+def test_summary_all_trains_includes_bus_replacement_service_type():
+    """A rail replacement bus in services shows up in all_trains tagged as a bus."""
+    sensor, coordinator = _make_sensor()
+    coordinator.data["services"].append(
+        {
+            "scheduled_departure": "20:46",
+            "expected_departure": "20:46",
+            "platform": "via Bus",
+            "operator": "Rail Replacement",
+            "service_id": "busReplacement",
+            "status": "on_time",
+            "delay_minutes": 0,
+            "is_cancelled": False,
+            "calling_points": [],
+            "estimated_arrival": None,
+            "scheduled_arrival": None,
+            "destination": "WYT",
+            "service_type": "bus",
+        }
+    )
+
+    attrs = sensor.extra_state_attributes
+    all_trains = attrs["all_trains"]
+
+    assert all_trains[0]["service_type"] == "train"
+    assert all_trains[1]["service_type"] == "bus"
+    assert all_trains[1]["platform"] == "via Bus"
+
+
 def test_summary_includes_historical_stats_when_store_present():
     """CommuteSummarySensor attrs include historical stats when stats_store is set."""
     store = _make_stats_store()

@@ -515,6 +515,43 @@ class TestParseService:
         # Delay should remain 0 since the time format is invalid
         assert result["delay_minutes"] == 0
 
+    async def test_parse_service_defaults_to_train_type(self, api_client):
+        """Test that a service parsed without service_type is tagged as a train."""
+        service_data = {
+            "std": "08:35",
+            "etd": "On time",
+            "platform": "3",
+            "operator": "Great Western Railway",
+            "serviceID": "service123",
+            "destination": [{"locationName": "Reading"}],
+        }
+
+        result = api_client._parse_service(service_data)
+
+        assert result["service_type"] == "train"
+        assert result["platform"] == "3"
+
+    async def test_parse_service_bus_replacement(self, api_client):
+        """Test parsing a rail replacement bus service.
+
+        Darwin doesn't assign a platform to buses, so the platform field
+        should be overridden with a "via Bus" display label instead of
+        whatever (usually empty) raw platform value it returned.
+        """
+        service_data = {
+            "std": "08:50",
+            "etd": "On time",
+            "operator": "Rail Replacement",
+            "serviceID": "busReplacement",
+            "destination": [{"locationName": "Cambridge"}],
+        }
+
+        result = api_client._parse_service(service_data, service_type="bus")
+
+        assert result["service_type"] == "bus"
+        assert result["platform"] == "via Bus"
+        assert result["operator"] == "Rail Replacement"
+
 
 class TestAPIRetryLogic:
     """Tests for API retry logic."""
@@ -635,3 +672,30 @@ class TestParseDepartureBoard:
         assert result["location_name"] == "Test Station"
         assert result["destination_name"] == "Test Destination"
         assert len(result["services"]) == 0
+
+    async def test_parse_departure_board_merges_bus_replacement_chronologically(
+        self, api_client, departure_board_with_bus_response
+    ):
+        """Test that a rail replacement bus is merged into the services list
+        in departure-time order alongside trains, rather than kept separate."""
+        result = api_client._parse_departure_board(departure_board_with_bus_response)
+
+        assert len(result["services"]) == 3
+
+        # Chronological order: 08:35 cancelled train, 08:50 bus, 09:15 train
+        assert result["services"][0]["service_id"] == "trainCancelled"
+        assert result["services"][0]["service_type"] == "train"
+        assert result["services"][0]["status"] == STATUS_CANCELLED
+
+        assert result["services"][1]["service_id"] == "busReplacement"
+        assert result["services"][1]["service_type"] == "bus"
+        assert result["services"][1]["platform"] == "via Bus"
+
+        assert result["services"][2]["service_id"] == "trainOnTime"
+        assert result["services"][2]["service_type"] == "train"
+
+        # The human-readable disruption notice should also be passed through
+        assert any(
+            "replacement bus" in message.lower()
+            for message in result["nrcc_messages"]
+        )

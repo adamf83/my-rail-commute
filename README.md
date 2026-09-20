@@ -32,8 +32,9 @@ The integration creates multiple sensors for each configured commute:
   - Service counts (requested, tracked, total found)
   - On-time/delayed/cancelled counts
   - Time window setting
-  - `all_trains`: Complete array of all tracked trains (useful for custom Lovelace cards)
+  - `all_trains`: Complete array of all tracked trains (useful for custom Lovelace cards). Each entry includes a `service_type` field (`train` or `bus`) — rail replacement buses are merged into this list in departure order alongside trains, with `platform` showing `via Bus` instead of a platform number. Bus entries are only as complete as what National Rail staff have entered into Darwin for that disruption, so they can be absent, appear late, or disappear between updates
   - `all_trains_json`: Same data as `all_trains`, serialized as a JSON string (useful for consumers like ESPHome that can only read a flat string attribute)
+  - `nrcc_messages`: Free-text disruption notices from National Rail (e.g. "Rail replacement buses operate between X and Y due to..."), when any are in effect for the origin station
   - Last updated and next update timestamps
 
 ### 2. Commute Status Sensor

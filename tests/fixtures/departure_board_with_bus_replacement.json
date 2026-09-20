@@ -1,0 +1,83 @@
+{
+  "GetStationBoardResult": {
+    "generatedAt": "2024-01-15T08:30:00",
+    "locationName": "Ely",
+    "crs": "ELY",
+    "filterLocationName": "Cambridge",
+    "filtercrs": "CBG",
+    "trainServices": {
+      "service": [
+        {
+          "std": "08:35",
+          "etd": "Cancelled",
+          "platform": "2",
+          "operator": "Great Northern",
+          "serviceID": "trainCancelled",
+          "cancelReason": "This train has been cancelled because of a shortage of train crew",
+          "destination": [
+            {
+              "locationName": "Cambridge",
+              "crs": "CBG"
+            }
+          ]
+        },
+        {
+          "std": "09:15",
+          "etd": "On time",
+          "platform": "3",
+          "operator": "Great Northern",
+          "serviceID": "trainOnTime",
+          "destination": [
+            {
+              "locationName": "Cambridge",
+              "crs": "CBG"
+            }
+          ],
+          "subsequentCallingPoints": [
+            {
+              "callingPoint": [
+                {
+                  "locationName": "Cambridge",
+                  "crs": "CBG",
+                  "st": "09:30",
+                  "et": "On time"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "busServices": {
+      "service": [
+        {
+          "std": "08:50",
+          "etd": "On time",
+          "operator": "Rail Replacement",
+          "serviceID": "busReplacement",
+          "destination": [
+            {
+              "locationName": "Cambridge",
+              "crs": "CBG"
+            }
+          ],
+          "subsequentCallingPoints": [
+            {
+              "callingPoint": [
+                {
+                  "locationName": "Cambridge",
+                  "crs": "CBG",
+                  "st": "09:25",
+                  "et": "On time"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "nrccMessages": [
+      "Rail replacement buses operate between Ely and Cambridge due to a points failure."
+    ]
+  }
+}
