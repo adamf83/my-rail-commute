@@ -213,6 +213,12 @@ def station_validation_response_fixture() -> dict:
     }
 
 
+@pytest.fixture(name="departure_board_with_bus_response")
+def departure_board_with_bus_response_fixture() -> dict:
+    """Return a sample departure board response with a rail replacement bus."""
+    return load_json_fixture("departure_board_with_bus_replacement.json")
+
+
 @pytest.fixture(name="empty_departure_board_response")
 def empty_departure_board_response_fixture() -> dict:
     """Return an empty departure board API response."""

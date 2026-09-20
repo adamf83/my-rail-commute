@@ -128,6 +128,7 @@ def _build_all_trains_attribute(services: list[dict[str, Any]]) -> list[dict[str
             "estimated_arrival": service.get("estimated_arrival"),
             "scheduled_arrival": service.get("scheduled_arrival"),
             "destination": service.get("destination"),
+            "service_type": service.get("service_type", "train"),
             ATTR_CATCHABLE: service.get("catchable"),
         }
 
@@ -301,6 +302,7 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
             # JSON string form for consumers (e.g. ESPHome text_sensor) that can
             # only pull a flat string attribute and parse it themselves
             "all_trains_json": json.dumps(all_trains, default=str),
+            "nrcc_messages": data.get("nrcc_messages", []),
         }
 
         # Include historical stats so the card can read them directly from this
@@ -1032,6 +1034,7 @@ class LegSummarySensor(NationalRailCommuteEntity, SensorEntity):
             "all_trains": all_trains,
             "all_trains_json": json.dumps(all_trains, default=str),
             "last_updated": (self.coordinator.data or {}).get("last_updated"),
+            "nrcc_messages": leg_data.get("nrcc_messages", []),
         }
 
 

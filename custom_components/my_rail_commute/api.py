@@ -401,18 +401,27 @@ class NationalRailAPI:
         location_name = board.get("locationName", "Unknown")
         destination_name = board.get("filterLocationName") or None
 
-        # Extract services
-        train_services = board.get("trainServices", {})
-        services_list = train_services if isinstance(train_services, list) else train_services.get("service", [])
-
-        if not isinstance(services_list, list):
-            services_list = [services_list] if services_list else []
+        # Extract train and rail-replacement bus services. Darwin returns
+        # these as separate sibling lists on the same board rather than
+        # flagging bus entries within trainServices.
+        services_list = self._extract_service_items(board, "trainServices")
+        bus_services_list = self._extract_service_items(board, "busServices")
 
         parsed_services = []
         for service in services_list:
-            parsed_service = self._parse_service(service, destination_crs)
+            parsed_service = self._parse_service(service, destination_crs, service_type="train")
             if parsed_service:
                 parsed_services.append(parsed_service)
+
+        for service in bus_services_list:
+            parsed_service = self._parse_service(service, destination_crs, service_type="bus")
+            if parsed_service:
+                parsed_services.append(parsed_service)
+
+        # Merge trains and buses into a single chronological timeline (Darwin
+        # returns each list already ordered by departure, so this is a stable
+        # merge on scheduled departure time).
+        parsed_services.sort(key=self._service_sort_key)
 
         return {
             "location_name": location_name,
@@ -422,7 +431,48 @@ class NationalRailAPI:
             "nrcc_messages": board.get("nrccMessages", []),
         }
 
-    def _parse_service(self, service: dict[str, Any], destination_crs: str | None = None) -> dict[str, Any] | None:
+    def _extract_service_items(self, board: dict[str, Any], key: str) -> list[dict[str, Any]]:
+        """Normalize a Darwin service list (trainServices/busServices) to a list.
+
+        Args:
+            board: The station board dict
+            key: The list key to extract (e.g. "trainServices", "busServices")
+
+        Returns:
+            List of raw service item dicts (possibly empty)
+        """
+        services = board.get(key, {})
+        services_list = services if isinstance(services, list) else services.get("service", [])
+
+        if not isinstance(services_list, list):
+            services_list = [services_list] if services_list else []
+
+        return services_list
+
+    def _service_sort_key(self, service: dict[str, Any]) -> tuple[int, int]:
+        """Sort key placing services in scheduled-departure order.
+
+        Services with an unparseable scheduled departure sort after all
+        valid ones, preserving their relative order (stable sort).
+
+        Args:
+            service: A parsed service dict
+
+        Returns:
+            Tuple used as the sort key
+        """
+        std = service.get("scheduled_departure", "")
+        if _TIME_FORMAT_RE.match(std):
+            hours, minutes = std.split(":")
+            return (0, int(hours) * 60 + int(minutes))
+        return (1, 0)
+
+    def _parse_service(
+        self,
+        service: dict[str, Any],
+        destination_crs: str | None = None,
+        service_type: str = "train",
+    ) -> dict[str, Any] | None:
         """Parse a single train service.
 
         Args:
@@ -517,10 +567,15 @@ class NationalRailAPI:
                     et = dest_point.get("et")
                     estimated_arrival = et if et and _TIME_FORMAT_RE.match(et) else None
 
+            # Darwin doesn't assign platforms to rail-replacement buses;
+            # show "via Bus" in that slot instead, matching how other
+            # departure boards label these services.
+            display_platform = "via Bus" if service_type == "bus" else platform
+
             return {
                 "scheduled_departure": std,
                 "expected_departure": expected_departure or std,
-                "platform": platform,
+                "platform": display_platform,
                 "operator": operator_name,
                 "service_id": service_id,
                 "calling_points": calling_points,
@@ -532,6 +587,7 @@ class NationalRailAPI:
                 "scheduled_arrival": scheduled_arrival,
                 "estimated_arrival": estimated_arrival or scheduled_arrival,
                 "destination": destination,
+                "service_type": service_type,
             }
         except Exception as err:
             _LOGGER.error("Error parsing service: %s", err)
