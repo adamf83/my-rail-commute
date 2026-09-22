@@ -142,8 +142,9 @@ def test_platform_change_detection_unit():
     sensor._handle_coordinator_update()
 
     assert sensor._current_service_id == "service123"
-    assert sensor._previous_platform == "3"  # Should NOT update - preserved
+    assert sensor._previous_platform == "5"  # Advances to the new platform
     assert sensor._platform_changed is True
+    assert sensor._changed_from_platform == "3"
 
     # Test 3: Same service, platform changed again from "5" to "7"
     mock_coordinator.data = {
@@ -158,10 +159,28 @@ def test_platform_change_detection_unit():
     sensor._handle_coordinator_update()
 
     assert sensor._current_service_id == "service123"
-    assert sensor._previous_platform == "3"  # Still the original
+    assert sensor._previous_platform == "7"  # Advances again
     assert sensor._platform_changed is True
+    assert sensor._changed_from_platform == "5"
 
-    # Test 4: Different service - should reset
+    # Test 4: Same service, platform stable at "7" - flag should clear
+    mock_coordinator.data = {
+        "services": [
+            {
+                "platform": "7",
+                "service_id": "service123",
+                "scheduled_departure": "08:35",
+            }
+        ]
+    }
+    sensor._handle_coordinator_update()
+
+    assert sensor._current_service_id == "service123"
+    assert sensor._previous_platform == "7"
+    assert sensor._platform_changed is False
+    assert sensor._changed_from_platform is None
+
+    # Test 5: Different service - should reset
     mock_coordinator.data = {
         "services": [
             {
@@ -222,8 +241,9 @@ def test_platform_change_from_tba_unit():
     sensor._handle_coordinator_update()
 
     assert sensor._current_service_id == "service123"
-    assert sensor._previous_platform == ""  # Preserved original (empty)
+    assert sensor._previous_platform == "3"  # Advances to the new platform
     assert sensor._platform_changed is True
+    assert sensor._changed_from_platform == ""
 
 
 def test_platform_change_no_service_id():

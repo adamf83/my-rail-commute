@@ -536,6 +536,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
         # Platform change tracking
         self._previous_platform: str | None = None
         self._platform_changed: bool = False
+        self._changed_from_platform: str | None = None
         self._current_service_id: str | None = None
 
         # Icon based on train number (next train gets special icon)
@@ -589,6 +590,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
                 )
                 self._platform_changed = False
                 self._previous_platform = None
+                self._changed_from_platform = None
                 self._current_service_id = None
             elif (
                 self._current_service_id
@@ -606,7 +608,10 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
                             current_platform,
                         )
                         self._platform_changed = True
-                        # Keep the previous platform stored (don't update it)
+                        self._changed_from_platform = self._previous_platform
+                        # Advance tracking so the flag clears once the
+                        # new platform stabilises on a later update
+                        self._previous_platform = current_platform
                     else:
                         # First time seeing this platform for this service
                         self._previous_platform = current_platform
@@ -614,15 +619,18 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
                 else:
                     # Platform hasn't changed
                     self._platform_changed = False
+                    self._changed_from_platform = None
             else:
                 # Different service or first time - reset tracking
                 self._platform_changed = False
+                self._changed_from_platform = None
                 self._previous_platform = current_platform
                 self._current_service_id = current_service_id
         else:
             # Train doesn't exist anymore - reset tracking
             self._previous_platform = None
             self._platform_changed = False
+            self._changed_from_platform = None
             self._current_service_id = None
 
         super()._handle_coordinator_update()
@@ -716,7 +724,7 @@ class TrainSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
             ATTR_PLATFORM: train.get("platform"),
             "platform_changed": self._platform_changed,
-            "previous_platform": self._previous_platform
+            "previous_platform": self._changed_from_platform
             if self._platform_changed
             else None,
             ATTR_OPERATOR: train.get("operator"),
@@ -769,6 +777,7 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
         # Platform change tracking (mirrors train_1)
         self._previous_platform: str | None = None
         self._platform_changed: bool = False
+        self._changed_from_platform: str | None = None
         self._current_service_id: str | None = None
 
     def _get_services(self) -> list[dict[str, Any]]:
@@ -809,6 +818,7 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
                 )
                 self._platform_changed = False
                 self._previous_platform = None
+                self._changed_from_platform = None
                 self._current_service_id = None
             elif (
                 self._current_service_id
@@ -825,7 +835,10 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
                             current_platform,
                         )
                         self._platform_changed = True
-                        # Keep the previous platform stored (don't update it)
+                        self._changed_from_platform = self._previous_platform
+                        # Advance tracking so the flag clears once the
+                        # new platform stabilises on a later update
+                        self._previous_platform = current_platform
                     else:
                         # First time seeing this platform for this service
                         self._previous_platform = current_platform
@@ -833,15 +846,18 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
                 else:
                     # Platform hasn't changed
                     self._platform_changed = False
+                    self._changed_from_platform = None
             else:
                 # Different service or first time - reset tracking
                 self._platform_changed = False
+                self._changed_from_platform = None
                 self._previous_platform = current_platform
                 self._current_service_id = current_service_id
         else:
             # Train doesn't exist anymore - reset tracking
             self._previous_platform = None
             self._platform_changed = False
+            self._changed_from_platform = None
             self._current_service_id = None
 
         super()._handle_coordinator_update()
@@ -933,7 +949,7 @@ class NextTrainSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_EXPECTED_DEPARTURE: train.get("expected_departure"),
             ATTR_PLATFORM: train.get("platform"),
             "platform_changed": self._platform_changed,
-            "previous_platform": self._previous_platform
+            "previous_platform": self._changed_from_platform
             if self._platform_changed
             else None,
             ATTR_OPERATOR: train.get("operator"),
