@@ -992,6 +992,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             if is_cancelled:
                 # Collect cancellation reason
                 reason = service.get("cancellation_reason")
+                reason = reason.strip() if reason else reason
                 if reason and reason not in disruption_reasons:
                     disruption_reasons.append(reason)
             elif delay_minutes > 0:
@@ -1000,6 +1001,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
                 # Collect delay reason
                 reason = service.get("delay_reason")
+                reason = reason.strip() if reason else reason
                 if reason and reason not in disruption_reasons:
                     disruption_reasons.append(reason)
 
