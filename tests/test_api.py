@@ -673,6 +673,32 @@ class TestParseDepartureBoard:
         assert result["destination_name"] == "Test Destination"
         assert len(result["services"]) == 0
 
+    async def test_parse_departure_board_rejects_non_dict_response(self, api_client):
+        """A non-dict top-level response should raise instead of crashing with
+        an AttributeError that bypasses the coordinator's error handling."""
+        with pytest.raises(NationalRailAPIError):
+            api_client._parse_departure_board(["unexpected", "list"])
+
+    async def test_parse_departure_board_rejects_non_dict_board(self, api_client):
+        """A non-dict GetStationBoardResult should raise instead of crashing
+        with an AttributeError that bypasses the coordinator's error handling."""
+        with pytest.raises(NationalRailAPIError):
+            api_client._parse_departure_board({"GetStationBoardResult": "unexpected"})
+
+    async def test_parse_departure_board_rejects_non_container_service_list(
+        self, api_client
+    ):
+        """A trainServices value that is neither a list nor a dict should be
+        treated as no services rather than raising an AttributeError."""
+        data = {
+            "locationName": "Test Station",
+            "trainServices": "unexpected",
+        }
+
+        result = api_client._parse_departure_board(data)
+
+        assert result["services"] == []
+
     async def test_parse_departure_board_merges_bus_replacement_chronologically(
         self, api_client, departure_board_with_bus_response
     ):
