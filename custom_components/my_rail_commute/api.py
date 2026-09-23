@@ -406,9 +406,23 @@ class NationalRailAPI:
 
         Returns:
             Parsed departure board data
+
+        Raises:
+            NationalRailAPIError: If the response is not a station board
+                structure (e.g. an unexpected type from the API)
         """
+        if not isinstance(data, dict):
+            raise NationalRailAPIError(
+                f"Unexpected departure board response type: {type(data).__name__}"
+            )
+
         # Handle different response structures
         board = data.get("GetStationBoardResult", data)
+
+        if not isinstance(board, dict):
+            raise NationalRailAPIError(
+                f"Unexpected station board structure: {type(board).__name__}"
+            )
 
         location_name = board.get("locationName", "Unknown")
         destination_name = board.get("filterLocationName") or None
@@ -454,7 +468,12 @@ class NationalRailAPI:
             List of raw service item dicts (possibly empty)
         """
         services = board.get(key, {})
-        services_list = services if isinstance(services, list) else services.get("service", [])
+        if isinstance(services, list):
+            services_list = services
+        elif isinstance(services, dict):
+            services_list = services.get("service", [])
+        else:
+            services_list = []
 
         if not isinstance(services_list, list):
             services_list = [services_list] if services_list else []
