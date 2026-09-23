@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from collections import deque
 from datetime import datetime, timedelta
@@ -34,6 +35,9 @@ _TIME_FORMAT_RE = re.compile(r"^\d{2}:\d{2}$")
 DEFAULT_RATE_LIMIT_PER_MINUTE = 10
 DEFAULT_RATE_LIMIT_PER_HOUR = 100
 RATE_LIMIT_THROTTLE_THRESHOLD = 0.8  # Throttle at 80% of limit
+# Extra random delay (as a fraction of the base delay) added on top of the
+# throttle wait so multiple coordinators don't stay locked in sync
+RATE_LIMIT_JITTER_FACTOR = 0.5
 
 
 class NationalRailAPIError(Exception):
@@ -132,8 +136,12 @@ class NationalRailAPI:
                 )
                 return True, wait_seconds
         elif calls_per_minute >= minute_threshold:
-            # Approaching limit - add small delay to spread out requests
-            wait_seconds = 60.0 / self._rate_limit_per_minute
+            # Approaching limit - add small delay to spread out requests, with
+            # jitter so multiple coordinators don't wake up at the same time
+            base_wait = 60.0 / self._rate_limit_per_minute
+            wait_seconds = base_wait + random.uniform(
+                0, base_wait * RATE_LIMIT_JITTER_FACTOR
+            )
             _LOGGER.info(
                 "Approaching rate limit: %s/%s calls per minute (threshold: %s). "
                 "Adding %.1f second delay.",
@@ -163,8 +171,12 @@ class NationalRailAPI:
                 )
                 return True, wait_seconds
         elif calls_per_hour >= hour_threshold:
-            # Approaching hourly limit - add delay
-            wait_seconds = 3600.0 / self._rate_limit_per_hour
+            # Approaching hourly limit - add delay, with jitter so multiple
+            # coordinators don't wake up at the same time
+            base_wait = 3600.0 / self._rate_limit_per_hour
+            wait_seconds = base_wait + random.uniform(
+                0, base_wait * RATE_LIMIT_JITTER_FACTOR
+            )
             _LOGGER.info(
                 "Approaching hourly rate limit: %s/%s calls per hour (threshold: %s). "
                 "Adding %.1f second delay.",
