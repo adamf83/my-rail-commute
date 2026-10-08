@@ -122,3 +122,79 @@ get_historical_raw_data:
       required: true
       selector:
         text: {}
+
+mark_delay_repay_claimed:
+  name: Mark Delay Repay Claimed
+  description: Mark journeys as claimed so they stop appearing as outstanding. Select journeys by key, by a date range (by departure date), or both.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute (find it in Settings → Integrations).
+      required: true
+      selector:
+        text: {}
+    journeys:
+      name: Journeys
+      description: Journey keys to mark, as listed in the Delay Repay Claims sensor's claims attribute (the "key" field).
+      required: false
+      selector:
+        object: {}
+    from_date:
+      name: From date
+      description: Mark every journey departing on or after this date.
+      required: false
+      selector:
+        date: {}
+    to_date:
+      name: To date
+      description: Mark every journey departing on or before this date.
+      required: false
+      selector:
+        date: {}
+
+dismiss_delay_repay:
+  name: Dismiss Delay Repay Journeys
+  description: Dismiss journeys you do not intend to claim for. Select journeys by key, by a date range (by departure date), or both.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute (find it in Settings → Integrations).
+      required: true
+      selector:
+        text: {}
+    journeys:
+      name: Journeys
+      description: Journey keys to dismiss, as listed in the Delay Repay Claims sensor's claims attribute (the "key" field).
+      required: false
+      selector:
+        object: {}
+    from_date:
+      name: From date
+      description: Dismiss every journey departing on or after this date.
+      required: false
+      selector:
+        date: {}
+    to_date:
+      name: To date
+      description: Dismiss every journey departing on or before this date.
+      required: false
+      selector:
+        date: {}
+
+get_delay_repay_claims:
+  name: Get Delay Repay Claims
+  description: Return every outstanding Delay Repay journey for a commute, newest first. The sensor attribute shows only the most recent few.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the commute (find it in Settings → Integrations).
+      required: true
+      selector:
+        text: {}
+    include_handled:
+      name: Include handled
+      description: Also include claimed, dismissed, pending and expired journeys.
+      required: false
+      default: false
+      selector:
+        boolean: {}

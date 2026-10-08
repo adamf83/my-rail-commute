@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
+from datetime import datetime, timedelta
 from enum import StrEnum
 import re
 from typing import Final
@@ -31,6 +32,7 @@ class ClaimStatus(StrEnum):
     ELIGIBLE = "eligible"  # frozen and claimable
     CLAIMED = "claimed"
     DISMISSED = "dismissed"
+    EXPIRED = "expired"  # eligible but the claim window has passed
 
 
 def parse_clock(value: str | None) -> int | None:
@@ -133,3 +135,101 @@ def assess_arrival(
         tier=tier_for_delay(delay, thresholds),
         is_cancelled=False,
     )
+
+
+def resolve_clock_datetime(clock: str | None, now: datetime) -> datetime | None:
+    """Return the datetime for an ``HH:MM`` clock time nearest to ``now``.
+
+    Board times carry no date, so pick whichever of yesterday, today or
+    tomorrow lands closest to now. A 00:10 train seen at 23:55 is tomorrow's.
+    """
+    minutes = parse_clock(clock)
+    if minutes is None:
+        return None
+    base = now.replace(hour=minutes // 60, minute=minutes % 60, second=0, microsecond=0)
+    candidates = (base + timedelta(days=d) for d in (-1, 0, 1))
+    return min(candidates, key=lambda c: abs(c - now))
+
+
+def arrival_datetime(
+    departure: datetime, scheduled_departure: str, scheduled_arrival: str
+) -> datetime | None:
+    """Return the scheduled arrival datetime for a journey departing at ``departure``.
+
+    The arrival is the next occurrence of its clock time at or after the
+    departure, so journeys that cross midnight roll onto the next day.
+    """
+    dep = parse_clock(scheduled_departure)
+    arr = parse_clock(scheduled_arrival)
+    if dep is None or arr is None:
+        return None
+    return departure + timedelta(minutes=(arr - dep) % _MINUTES_PER_DAY)
+
+
+def claim_key(
+    date: str, leg: int, service_id: str, origin: str, scheduled_departure: str
+) -> str:
+    """Return the stable key for a journey: date, leg and train.
+
+    Falls back to origin and departure time when the board gives no service ID.
+    """
+    train = service_id or f"{origin}-{scheduled_departure}"
+    return f"{date}|{leg}|{train}"
+
+
+@dataclass(frozen=True, slots=True)
+class ClaimRecord:
+    """One tracked journey (a single leg of a single train on a single day)."""
+
+    date: str  # departure date, ISO
+    leg: int
+    service_id: str
+    operator: str
+    origin: str
+    destination: str
+    scheduled_departure: str
+    scheduled_arrival: str | None
+    arrival: str | None  # estimated or actual, as reported: HH:MM or "On time"
+    delay_minutes: int | None
+    tier: int | None
+    is_cancelled: bool
+    confirmation: Confirmation
+    status: ClaimStatus
+    live_until: str  # ISO; the delay may change until then
+    first_seen: str  # ISO
+    last_updated: str  # ISO
+    delay_reason: str | None = None
+
+    @property
+    def key(self) -> str:
+        """Return this journey's unique key."""
+        return claim_key(
+            self.date,
+            self.leg,
+            self.service_id,
+            self.origin,
+            self.scheduled_departure,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-serialisable dict."""
+        data = asdict(self)
+        data["confirmation"] = self.confirmation.value
+        data["status"] = self.status.value
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> ClaimRecord:
+        """Build a record from stored data, ignoring unknown keys.
+
+        Raises:
+            ValueError: if required fields are missing or enum values are invalid.
+        """
+        names = {f.name for f in fields(cls)}
+        values = {k: v for k, v in data.items() if k in names}
+        try:
+            values["confirmation"] = Confirmation(values["confirmation"])
+            values["status"] = ClaimStatus(values["status"])
+            return cls(**values)  # type: ignore[arg-type]
+        except (KeyError, TypeError) as err:
+            raise ValueError(f"invalid claim record: {err}") from err

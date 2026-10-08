@@ -14,6 +14,7 @@ import voluptuous as vol
 
 from .api import NationalRailAPI
 from .const import (
+    CONF_DELAY_REPAY_ENABLED,
     CONF_DESTINATION,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
@@ -22,6 +23,8 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
+from .delay_repay.services import async_register_services, async_remove_services
+from .delay_repay.tracker import async_create_tracker
 from .statistics import CommuteStatisticsStore
 
 SERVICE_GET_HISTORICAL_RAW_DATA = "get_historical_raw_data"
@@ -70,6 +73,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         stats_store = CommuteStatisticsStore(hass, entry.entry_id)
         await stats_store.async_load()
         coordinator.stats_store = stats_store
+
+        # Opt-in Delay Repay claim tracking
+        if config.get(CONF_DELAY_REPAY_ENABLED, False):
+            coordinator.delay_repay = await async_create_tracker(
+                hass, entry.entry_id, config
+            )
+            async_register_services(hass)
 
         # Fetch initial data
         _LOGGER.debug("Fetching initial data for %s -> %s", config.get(CONF_ORIGIN), config.get(CONF_DESTINATION))
@@ -136,6 +146,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Remove domain-wide services when the last entry is unloaded
         if not hass.data[DOMAIN]:
             hass.services.async_remove(DOMAIN, SERVICE_GET_HISTORICAL_RAW_DATA)
+
+        # Remove Delay Repay services once no entry still uses them
+        if not any(
+            getattr(c, "delay_repay", None) is not None
+            for c in hass.data[DOMAIN].values()
+        ):
+            async_remove_services(hass)
 
     return unload_ok
 
