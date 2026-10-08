@@ -23,6 +23,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
+from .delay_repay.confirm import DestinationBoardSource
 from .delay_repay.services import async_register_services, async_remove_services
 from .delay_repay.tracker import async_create_tracker
 from .statistics import CommuteStatisticsStore
@@ -79,6 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator.delay_repay = await async_create_tracker(
                 hass, entry.entry_id, config
             )
+            coordinator.delay_repay.confirmation_source = DestinationBoardSource(api)
             async_register_services(hass)
 
         # Fetch initial data
