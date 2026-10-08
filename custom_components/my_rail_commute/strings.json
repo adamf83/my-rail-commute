@@ -78,12 +78,21 @@
           "night_updates": "Enable Night-Time Updates",
           "departed_train_grace_period": "Departed Train Grace Period (minutes)",
           "min_connection_time": "Minimum Connection Time (minutes)",
-          "only_catchable_services": "Only Show Catchable Services (hide trains you can't make the connection for)"
+          "only_catchable_services": "Only Show Catchable Services (hide trains you can't make the connection for)",
+          "delay_repay_enabled": "Track Delay Repay claims",
+          "delay_repay_thresholds": "Delay Repay thresholds (minutes, comma separated)",
+          "delay_repay_operators": "Operator overrides (one per line: Operator = 15,30,60 | claim link)",
+          "delay_repay_claim_window_days": "Days to claim before a journey expires"
+        },
+        "data_description": {
+          "delay_repay_thresholds": "Delay lengths that qualify for compensation. The usual scheme is 15, 30, 60 and 120. Used for every operator without an override.",
+          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120 | https://example.com/claim'. Lines starting with # are ignored."
         }
       }
     },
     "error": {
-      "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute."
+      "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
+      "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional '| https://link'."
     }
   },
   "entity": {

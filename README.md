@@ -147,6 +147,23 @@ The integration creates multiple sensors for each configured commute:
   - `days_with_data_7day`: Days with recorded data in the 7-day window
 - **Use Case**: Understand whether your route is getting better or worse, and identify your worst days
 
+### 8. Delay Repay Claims (opt-in)
+
+Tracks late and cancelled journeys that may qualify for [Delay Repay](https://www.nationalrail.co.uk/help-and-support/refunds-and-compensation/) compensation, so you can claim in bulk later. Enable it under **Configure → Track Delay Repay claims**. It is off by default and adds nothing until enabled.
+
+- **Delay Repay Claims** (`sensor.{commute_name}_delay_repay_claims`): number of unclaimed journeys. The `claims` attribute lists the most recent 30 (date, leg, route, scheduled and expected arrival, delay minutes, tier, operator, service ID, delay reason, claim link and claim deadline), with `claims_truncated`, `pending_count`, `oldest_unclaimed_date` and `oldest_claim_deadline`.
+- **Delay Repay Eligible** (`binary_sensor.{commute_name}_delay_repay_eligible`): on while a journey today may be claimable, so it can trigger a same-day notification.
+
+**Important:** delays are currently taken from the live departure board's forecast arrival time, not a confirmed actual arrival. Treat each entry as "may be eligible" and check the real arrival time before you claim. Journeys are recorded per leg for multi-leg commutes, and a cancelled train is always listed.
+
+Thresholds default to the common 15/30/60/120 minute tiers. If an operator uses a different scheme, add an override in the options, one per line:
+
+```
+Southern = 30,60,120 | https://example.com/where-to-claim
+```
+
+Journeys expire from the list after the claim window (28 days by default).
+
 ## Actions
 
 The integration provides several actions (callable via **Developer Tools → Actions** or automations):
@@ -170,6 +187,27 @@ data:
 ```
 
 The response includes an array of daily records with `date`, `on_time_count`, `delayed_count`, `cancelled_count`, `total_observations`, and `total_delay_minutes`.
+
+### Delay Repay Claims
+Manage the Delay Repay claims list (only for commutes with tracking enabled). Select journeys by their `key` (shown in the claims attribute), by a date range, or both.
+
+```yaml
+action: my_rail_commute.mark_delay_repay_claimed   # or dismiss_delay_repay
+data:
+  entry_id: "your_config_entry_id"
+  journeys:
+    - "2026-10-08|1|9494208WHYTELF"
+```
+
+```yaml
+action: my_rail_commute.mark_delay_repay_claimed
+data:
+  entry_id: "your_config_entry_id"
+  from_date: "2026-10-01"
+  to_date: "2026-10-31"
+```
+
+`my_rail_commute.get_delay_repay_claims` returns the full outstanding list (the sensor attribute is capped); pass `include_handled: true` to include claimed, dismissed and expired journeys.
 
 ## Prerequisites
 

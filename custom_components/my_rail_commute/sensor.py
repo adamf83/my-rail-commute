@@ -22,6 +22,9 @@ from .const import (
     ATTR_CANCELLED_COUNT,
     ATTR_CANCELLED_COUNT_TODAY,
     ATTR_CATCHABLE,
+    ATTR_CLAIM_WINDOW_DAYS,
+    ATTR_CLAIMS,
+    ATTR_CLAIMS_TRUNCATED,
     ATTR_CONNECTIONS,
     ATTR_DAILY_BREAKDOWN,
     ATTR_DELAY_MINUTES,
@@ -36,6 +39,8 @@ from .const import (
     ATTR_IS_MULTI_LEG,
     ATTR_JOURNEY_FEASIBLE,
     ATTR_LEGS,
+    ATTR_OLDEST_CLAIM_DEADLINE,
+    ATTR_OLDEST_UNCLAIMED_DATE,
     ATTR_ON_TIME_COUNT,
     ATTR_ON_TIME_COUNT_TODAY,
     ATTR_ON_TIME_PCT_7D,
@@ -44,6 +49,7 @@ from .const import (
     ATTR_OPERATOR,
     ATTR_ORIGIN,
     ATTR_ORIGIN_NAME,
+    ATTR_PENDING_COUNT,
     ATTR_PLATFORM,
     ATTR_REVERSE_AVG_DELAY_7D,
     ATTR_REVERSE_BEST_DAY,
@@ -62,6 +68,7 @@ from .const import (
     ATTR_WORST_DAY,
     CONF_COMMUTE_NAME,
     CONF_NUM_SERVICES,
+    DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS,
     DOMAIN,
     STATUS_CONNECTION_DELAYED,
     STATUS_CONNECTION_MISSED,
@@ -74,6 +81,8 @@ from .const import (
     STATUS_SEVERE_DISRUPTION,
 )
 from .coordinator import NationalRailDataUpdateCoordinator, build_route_id
+from .delay_repay.models import ClaimStatus
+from .delay_repay.services import claim_to_dict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -194,6 +203,10 @@ async def async_setup_entry(
     # Historical performance sensors
     entities.append(HistoricalReliabilitySensor(coordinator, entry))
     entities.append(HistoricalDelaysSensor(coordinator, entry))
+
+    # Delay Repay claims (opt-in)
+    if coordinator.delay_repay is not None:
+        entities.append(DelayRepayClaimsSensor(coordinator, entry))
 
     _LOGGER.debug(
         "Setting up %d sensor entities for %s -> %s",
@@ -1319,4 +1332,54 @@ class HistoricalDelaysSensor(NationalRailCommuteEntity, SensorEntity):
             ATTR_WORST_DAY: best_worst["worst_day"],
             ATTR_BEST_DAY: best_worst["best_day"],
             "days_with_data_7day": rolling_7["days_with_data"],
+        }
+
+
+class DelayRepayClaimsSensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor counting journeys that may be eligible for Delay Repay.
+
+    The state is the number of unclaimed, frozen journeys. The attribute lists
+    the most recent of them; the full list is available from the
+    get_delay_repay_claims service.
+    """
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_name = "Delay Repay Claims"
+        self._attr_unique_id = f"{entry.entry_id}_delay_repay_claims"
+        self._attr_icon = "mdi:cash-refund"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of unclaimed eligible journeys."""
+        tracker = self.coordinator.delay_repay
+        if tracker is None:
+            return None
+        return len(tracker.unclaimed())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the recent unclaimed journeys and deadline information."""
+        tracker = self.coordinator.delay_repay
+        if tracker is None:
+            return {}
+
+        unclaimed = tracker.unclaimed()
+        shown = unclaimed[:DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS]
+        oldest = unclaimed[-1] if unclaimed else None
+        return {
+            ATTR_CLAIMS: [claim_to_dict(r, tracker) for r in shown],
+            ATTR_CLAIMS_TRUNCATED: len(unclaimed) > len(shown),
+            ATTR_PENDING_COUNT: len(tracker.records((ClaimStatus.PENDING,))),
+            ATTR_OLDEST_UNCLAIMED_DATE: oldest.date if oldest else None,
+            ATTR_OLDEST_CLAIM_DEADLINE: (
+                tracker.claim_deadline(oldest) if oldest else None
+            ),
+            ATTR_CLAIM_WINDOW_DAYS: tracker.claim_window_days,
         }
