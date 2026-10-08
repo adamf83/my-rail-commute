@@ -147,11 +147,20 @@ async def validate_stations(
         raise ValueError("Origin and destination must be different")
 
     # Validate both stations
-    origin_name = await api.validate_station(origin)
-    destination_name = await api.validate_station(destination)
+    try:
+        origin_name = await api.validate_station(origin)
+    except InvalidStationError as err:
+        raise InvalidStationError(str(err), field=CONF_ORIGIN) from err
+    try:
+        destination_name = await api.validate_station(destination)
+    except InvalidStationError as err:
+        raise InvalidStationError(str(err), field=CONF_DESTINATION) from err
 
     if not origin_name or not destination_name:
-        raise InvalidStationError("Could not validate station codes")
+        raise InvalidStationError(
+            "Could not validate station codes",
+            field=CONF_ORIGIN if not origin_name else CONF_DESTINATION,
+        )
 
     return {
         "origin_name": origin_name,
@@ -327,9 +336,14 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # Validate only the origin station
                     session = async_get_clientsession(self.hass)
                     api = NationalRailAPI(self._api_key, session)
-                    origin_name = await api.validate_station(origin)
+                    try:
+                        origin_name = await api.validate_station(origin)
+                    except InvalidStationError as err:
+                        raise InvalidStationError(str(err), field=CONF_ORIGIN) from err
                     if not origin_name:
-                        raise InvalidStationError("Could not validate origin station")
+                        raise InvalidStationError(
+                            "Could not validate origin station", field=CONF_ORIGIN
+                        )
 
                     self._origin = origin
                     self._destination = None
@@ -373,8 +387,13 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError as err:
                 if "destination_required" not in str(err):
                     errors["base"] = "same_station"
-            except InvalidStationError:
-                errors["base"] = "invalid_station"
+            except InvalidStationError as err:
+                if err.field == CONF_ORIGIN:
+                    errors[CONF_ORIGIN] = "invalid_origin"
+                elif err.field == CONF_DESTINATION:
+                    errors[CONF_DESTINATION] = "invalid_destination"
+                else:
+                    errors["base"] = "invalid_station"
             except AuthenticationError:
                 errors["base"] = "invalid_auth"
             except NationalRailAPIError:
@@ -477,8 +496,13 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError as err:
                 if "destination_required" not in str(err) and "same_as_destination" not in str(err):
                     errors["base"] = "same_station"
-            except InvalidStationError:
-                errors["base"] = "invalid_station"
+            except InvalidStationError as err:
+                # The current point was already validated, so the new
+                # interchange is the code at fault (unless origin == it)
+                if err.field == CONF_ORIGIN:
+                    errors["base"] = "invalid_station"
+                else:
+                    errors[CONF_LEG_DESTINATION] = "invalid_station"
             except AuthenticationError:
                 errors["base"] = "invalid_auth"
             except NationalRailAPIError:

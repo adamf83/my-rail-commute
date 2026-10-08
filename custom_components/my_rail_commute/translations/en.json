@@ -53,6 +53,8 @@
       "invalid_auth": "Authentication failed. Please check your API key.",
       "cannot_connect": "Unable to connect to Rail API. Please try again later.",
       "invalid_station": "Invalid station code. Please use a valid 3-letter CRS code.",
+      "invalid_origin": "Origin station code not recognised. Please use a valid 3-letter CRS code.",
+      "invalid_destination": "Destination station code not recognised. Please use a valid 3-letter CRS code.",
       "same_station": "Origin and destination stations must be different.",
       "same_as_destination": "This is already your final destination — continue instead of adding it as a connecting leg.",
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",

@@ -49,7 +49,16 @@ class AuthenticationError(NationalRailAPIError):
 
 
 class InvalidStationError(NationalRailAPIError):
-    """Invalid station code."""
+    """Invalid station code.
+
+    ``field`` optionally names the config key (e.g. origin/destination) that
+    held the bad code, so the UI can flag the right input.
+    """
+
+    def __init__(self, message: str = "", field: str | None = None) -> None:
+        """Initialise the error, optionally recording the offending field."""
+        super().__init__(message)
+        self.field = field
 
 
 class RateLimitError(NationalRailAPIError):
@@ -659,12 +668,11 @@ class NationalRailAPI:
 
             raise InvalidStationError(ERROR_INVALID_STATION)
 
-        except (AuthenticationError, RateLimitError):
-            # Re-raise auth and rate limit errors
+        except NationalRailAPIError as err:
+            # Invalid-station, auth, rate-limit and connectivity errors keep
+            # their own type so callers can report the real problem
+            _LOGGER.debug("Station validation failed for %s: %s", crs_code, err)
             raise
-        except Exception as err:
-            _LOGGER.error("Station validation failed for %s: %s", crs_code, err)
-            raise InvalidStationError(ERROR_INVALID_STATION) from err
 
     async def validate_api_key(self) -> bool:
         """Validate the API key by making a test request.

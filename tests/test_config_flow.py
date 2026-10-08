@@ -105,8 +105,23 @@ class TestValidateStations:
                 side_effect=InvalidStationError("Invalid station")
             )
 
-            with pytest.raises(InvalidStationError):
+            with pytest.raises(InvalidStationError) as exc:
                 await validate_stations(hass, "test_key", "XYZ", "RDG")
+            assert exc.value.field == CONF_ORIGIN
+
+    async def test_validate_stations_invalid_destination(self, hass: HomeAssistant):
+        """Test the destination is flagged when only it is invalid."""
+        with patch(
+            "custom_components.my_rail_commute.config_flow.NationalRailAPI"
+        ) as mock_api:
+            mock_instance = mock_api.return_value
+            mock_instance.validate_station = AsyncMock(
+                side_effect=["London Paddington", InvalidStationError("Invalid")]
+            )
+
+            with pytest.raises(InvalidStationError) as exc:
+                await validate_stations(hass, "test_key", "PAD", "XYZ")
+            assert exc.value.field == CONF_DESTINATION
 
 
 class TestConfigFlow:
@@ -214,7 +229,7 @@ class TestConfigFlow:
         # Submit invalid station
         with patch(
             "custom_components.my_rail_commute.config_flow.validate_stations",
-            side_effect=InvalidStationError("Invalid station"),
+            side_effect=InvalidStationError("Invalid station", field=CONF_ORIGIN),
         ):
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
@@ -223,7 +238,19 @@ class TestConfigFlow:
 
             assert result["type"] == data_entry_flow.FlowResultType.FORM
             assert result["step_id"] == "stations"
-            assert result["errors"] == {"base": "invalid_station"}
+            assert result["errors"] == {CONF_ORIGIN: "invalid_origin"}
+
+        # Invalid destination is flagged on the destination field
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_stations",
+            side_effect=InvalidStationError("Invalid", field=CONF_DESTINATION),
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={CONF_ORIGIN: "PAD", CONF_DESTINATION: "XYZ"},
+            )
+
+            assert result["errors"] == {CONF_DESTINATION: "invalid_destination"}
 
     async def test_form_stations_same_station(self, hass: HomeAssistant):
         """Test same origin and destination in stations step."""

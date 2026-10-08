@@ -138,6 +138,22 @@ class TestValidateStation:
             with pytest.raises(InvalidStationError):
                 await api_client.validate_station("XYZ")
 
+    async def test_validate_station_network_error_not_invalid_station(
+        self, api_client
+    ):
+        """Connectivity problems must not be reported as an invalid station."""
+        with aioresponses() as mock:
+            mock.get(
+                f"{API_BASE_URL}/GetDepartureBoard/PAD?numRows=1",
+                exception=ClientError("boom"),
+                repeat=True,
+            )
+
+            with patch("asyncio.sleep", new=AsyncMock()):
+                with pytest.raises(NationalRailAPIError) as exc:
+                    await api_client.validate_station("PAD")
+            assert not isinstance(exc.value, InvalidStationError)
+
     async def test_validate_station_bad_request(self, api_client):
         """Test station validation with 400 bad request (invalid CRS code)."""
         with aioresponses() as mock:
