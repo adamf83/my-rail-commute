@@ -198,6 +198,10 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         # Historical stats recorder — attached externally by async_setup_entry
         self.stats_store: Any | None = None
 
+        # Delay Repay claim tracker — attached externally by async_setup_entry
+        # when the option is enabled
+        self.delay_repay: Any | None = None
+
         # Initialize with off-peak interval
         update_interval = self._get_update_interval()
 
@@ -325,6 +329,14 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             # Record observation in historical stats store
             if self.stats_store is not None:
                 await self.stats_store.async_record_observation(parsed_data)
+
+            # Record claimable journeys. This is an opt-in extra, so a fault in
+            # it is logged rather than allowed to break the departure board.
+            if self.delay_repay is not None:
+                try:
+                    await self.delay_repay.async_observe(parsed_data)
+                except Exception:
+                    _LOGGER.exception("Delay Repay tracking failed")
 
             # Reset failed update counter on success
             self._failed_updates = 0

@@ -21,6 +21,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator, build_route_id
+from .delay_repay.services import claim_to_dict
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,10 @@ async def async_setup_entry(
     entities: list[BinarySensorEntity] = [
         DisruptionSensor(coordinator, entry),
     ]
+
+    # Delay Repay eligibility (opt-in)
+    if coordinator.delay_repay is not None:
+        entities.append(DelayRepayEligibleSensor(coordinator, entry))
 
     _LOGGER.debug(
         "Setting up binary sensor entities for %s -> %s",
@@ -174,3 +179,41 @@ class DisruptionSensor(NationalRailCommuteBinarySensor):
         if self.is_on:
             return "mdi:alert-circle"
         return "mdi:check-circle"
+
+
+class DelayRepayEligibleSensor(NationalRailCommuteBinarySensor):
+    """Binary sensor that is on while a journey today may be claimable.
+
+    ON when any journey that departed (or is due to depart) today is a live or
+    frozen Delay Repay candidate, so it can drive same-day notifications.
+    Earlier unclaimed journeys are counted by the Delay Repay Claims sensor.
+    """
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_name = "Delay Repay Eligible"
+        self._attr_unique_id = f"{entry.entry_id}_delay_repay_eligible"
+        self._attr_icon = "mdi:cash-refund"
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if a journey today may be claimable."""
+        tracker = self.coordinator.delay_repay
+        return tracker is not None and bool(tracker.outstanding_today())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return today's candidate journeys."""
+        tracker = self.coordinator.delay_repay
+        if tracker is None:
+            return {}
+        today = tracker.outstanding_today()
+        return {
+            "journeys_today": len(today),
+            "latest": claim_to_dict(today[0], tracker) if today else None,
+        }

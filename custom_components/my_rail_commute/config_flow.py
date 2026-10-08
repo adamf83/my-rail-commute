@@ -26,6 +26,10 @@ from .const import (
     CONF_ADD_RETURN_JOURNEY,
     CONF_ALL_DEPARTURES,
     CONF_COMMUTE_NAME,
+    CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+    CONF_DELAY_REPAY_ENABLED,
+    CONF_DELAY_REPAY_OPERATORS,
+    CONF_DELAY_REPAY_THRESHOLDS,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
     CONF_DISRUPTION_MULTIPLE_DELAY,
@@ -41,6 +45,8 @@ from .const import (
     CONF_ORIGIN,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
+    DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+    DEFAULT_DELAY_REPAY_THRESHOLDS,
     DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD,
     DEFAULT_MAJOR_DELAY_THRESHOLD,
     DEFAULT_MIN_CONNECTION_TIME,
@@ -54,17 +60,20 @@ from .const import (
     LOCATION_SEARCH_MAX_RADIUS_MILES,
     LOCATION_SEARCH_MIN_RADIUS_MILES,
     MAX_CONNECTION_TIME,
+    MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     MAX_DELAY_THRESHOLD,
     MAX_GRACE_PERIOD,
     MAX_NUM_SERVICES,
     MAX_TIME_WINDOW,
     MIN_CONNECTION_TIME,
+    MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     MIN_DELAY_THRESHOLD,
     MIN_GRACE_PERIOD,
     MIN_NUM_SERVICES,
     MIN_TIME_WINDOW,
 )
 from .coordinator import build_route_id
+from .delay_repay.schemes import build_scheme_set
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -884,6 +893,18 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "invalid_thresholds"
                 _LOGGER.error("Invalid delay thresholds: %s", err)
 
+            # Validate Delay Repay schemes (only when the feature is on)
+            if user_input.get(CONF_DELAY_REPAY_ENABLED):
+                try:
+                    build_scheme_set(
+                        user_input.get(CONF_DELAY_REPAY_THRESHOLDS)
+                        or DEFAULT_DELAY_REPAY_THRESHOLDS,
+                        user_input.get(CONF_DELAY_REPAY_OPERATORS) or "",
+                    )
+                except ValueError as err:
+                    errors["base"] = "invalid_delay_repay_schemes"
+                    _LOGGER.error("Invalid Delay Repay schemes: %s", err)
+
             if not errors:
                 data = dict(user_input)
                 # Update the config entry
@@ -995,6 +1016,47 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 ),
             ),
         }
+
+        schema_dict[
+            vol.Required(
+                CONF_DELAY_REPAY_ENABLED,
+                default=options.get(
+                    CONF_DELAY_REPAY_ENABLED,
+                    current_data.get(CONF_DELAY_REPAY_ENABLED, False),
+                ),
+            )
+        ] = selector.BooleanSelector()
+        schema_dict[
+            vol.Optional(
+                CONF_DELAY_REPAY_THRESHOLDS,
+                default=options.get(
+                    CONF_DELAY_REPAY_THRESHOLDS, DEFAULT_DELAY_REPAY_THRESHOLDS
+                ),
+            )
+        ] = selector.TextSelector()
+        schema_dict[
+            vol.Optional(
+                CONF_DELAY_REPAY_OPERATORS,
+                default=options.get(CONF_DELAY_REPAY_OPERATORS, ""),
+            )
+        ] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+        schema_dict[
+            vol.Required(
+                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                default=options.get(
+                    CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                    DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                ),
+            )
+        ] = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                max=MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                step=1,
+                unit_of_measurement="days",
+                mode=selector.NumberSelectorMode.BOX,
+            ),
+        )
 
         if len(current_data.get(CONF_LEGS) or []) > 1:
             schema_dict[

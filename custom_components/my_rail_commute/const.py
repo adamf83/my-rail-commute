@@ -190,3 +190,39 @@ ATTR_REVERSE_AVG_DELAY_7D: Final = "reverse_avg_delay_7day"
 ATTR_REVERSE_WORST_DAY: Final = "reverse_worst_day"
 ATTR_REVERSE_BEST_DAY: Final = "reverse_best_day"
 ATTR_REVERSE_DAILY_BREAKDOWN: Final = "reverse_daily_breakdown"
+
+# Delay Repay claim tracking (opt-in per config entry)
+CONF_DELAY_REPAY_ENABLED: Final = "delay_repay_enabled"
+CONF_DELAY_REPAY_THRESHOLDS: Final = "delay_repay_thresholds"
+CONF_DELAY_REPAY_OPERATORS: Final = "delay_repay_operators"
+CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS: Final = "delay_repay_claim_window_days"
+
+# Default scheme: the common "DR15" tiers (15/30/60/120 minutes). Operator
+# specific schemes are user-configurable; none are bundled because they
+# change over time and have not been verified per operator.
+DEFAULT_DELAY_REPAY_THRESHOLDS: Final = "15,30,60,120"
+DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS: Final = 28
+MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS: Final = 7
+MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS: Final = 90
+
+DELAY_REPAY_STORAGE_VERSION: Final = 1
+# Claims are kept this many days beyond the claim window so claimed and
+# expired journeys stay visible for a while
+DELAY_REPAY_RETENTION_EXTRA_DAYS: Final = 28
+# A tracked journey stays "live" (its delay may still change) until this many
+# minutes after its scheduled arrival, then it is frozen as eligible
+DELAY_REPAY_LIVE_GRACE_MINUTES: Final = 10
+# Maximum journeys listed in the claims sensor attribute (the recorder drops
+# attributes over 16KB); the full list is available via the get service
+DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS: Final = 30
+
+SERVICE_MARK_DELAY_REPAY_CLAIMED: Final = "mark_delay_repay_claimed"
+SERVICE_DISMISS_DELAY_REPAY: Final = "dismiss_delay_repay"
+SERVICE_GET_DELAY_REPAY_CLAIMS: Final = "get_delay_repay_claims"
+
+ATTR_CLAIMS: Final = "claims"
+ATTR_CLAIMS_TRUNCATED: Final = "claims_truncated"
+ATTR_PENDING_COUNT: Final = "pending_count"
+ATTR_OLDEST_UNCLAIMED_DATE: Final = "oldest_unclaimed_date"
+ATTR_OLDEST_CLAIM_DEADLINE: Final = "oldest_claim_deadline"
+ATTR_CLAIM_WINDOW_DAYS: Final = "claim_window_days"
