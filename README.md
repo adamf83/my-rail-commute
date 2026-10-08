@@ -154,7 +154,9 @@ Tracks late and cancelled journeys that may qualify for [Delay Repay](https://ww
 - **Delay Repay Claims** (`sensor.{commute_name}_delay_repay_claims`): number of unclaimed journeys. The `claims` attribute lists the most recent 30 (date, leg, route, scheduled and expected arrival, delay minutes, tier, operator, service ID, delay reason, claim link and claim deadline), with `claims_truncated`, `pending_count`, `oldest_unclaimed_date` and `oldest_claim_deadline`.
 - **Delay Repay Eligible** (`binary_sensor.{commute_name}_delay_repay_eligible`): on while a journey today may be claimable, so it can trigger a same-day notification.
 
-**Important:** delays are currently taken from the live departure board's forecast arrival time, not a confirmed actual arrival. Treat each entry as "may be eligible" and check the real arrival time before you claim. Journeys are recorded per leg for multi-leg commutes, and a cancelled train is always listed.
+**How delays are measured:** a journey is first recorded from the departure board's *forecast* arrival time (`confirmation: estimated`). Around the expected arrival time the integration looks the train up on the destination's arrivals board and, once the train has actually arrived, replaces the forecast with the real arrival time (`confirmation: confirmed`). A forecast that turns out to be under the threshold is removed, and a train cancelled en route becomes a cancellation. This costs a few extra API calls (an arrivals board and a service lookup) only for journeys already forecast as late, for about 30 minutes around their arrival.
+
+If the arrival can't be confirmed (for example the train is no longer on the destination board), the entry stays an estimate. **Check the real arrival time before you claim** anything marked `estimated`. Journeys are recorded per leg for multi-leg commutes, and a cancelled train is always listed.
 
 Thresholds default to the common 15/30/60/120 minute tiers. If an operator uses a different scheme, add an override in the options, one per line:
 

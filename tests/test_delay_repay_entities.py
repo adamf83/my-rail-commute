@@ -64,6 +64,7 @@ async def test_claims_sensor_counts_only_frozen_unclaimed_journeys():
         await tracker.async_maintain(NOW + timedelta(minutes=40))
         assert sensor.native_value == 1
         attrs = sensor.extra_state_attributes
+        assert attrs["entry_id"] == "entry1"
         assert attrs["pending_count"] == 0
         assert attrs["claims_truncated"] is False
         assert attrs["claim_window_days"] == 28

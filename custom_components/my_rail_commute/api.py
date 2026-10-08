@@ -407,6 +407,83 @@ class NationalRailAPI:
             _LOGGER.error("Failed to get departure board: %s", err)
             raise
 
+    async def get_arrival_board(
+        self,
+        crs: str,
+        origin_crs: str,
+        time_offset: int = -10,
+        time_window: int = 45,
+        num_rows: int = 9,
+    ) -> list[dict[str, Any]]:
+        """Get raw train services arriving at a station from a given origin.
+
+        Used to find the arrival-side service ID of a train that has left its
+        origin, since service IDs are specific to the board that issued them.
+
+        Args:
+            crs: Station the board is for (the journey's destination)
+            origin_crs: Only services that started at this station
+            time_offset: Minutes relative to now at which the board starts
+            time_window: Minutes the board covers from the offset
+            num_rows: Maximum services (the "with details" board allows < 10)
+
+        Returns:
+            Raw service items (as returned by the API), possibly empty
+
+        Raises:
+            NationalRailAPIError: If the request fails or the response is not
+                a station board
+        """
+        endpoint = f"GetArrBoardWithDetails/{crs.upper()}"
+        params: dict[str, Any] = {
+            "filterCrs": origin_crs.upper(),
+            "filterType": "from",
+            "timeOffset": time_offset,
+            "timeWindow": time_window,
+            "numRows": num_rows,
+        }
+        data = await self._request(endpoint, params)
+        if not isinstance(data, dict):
+            raise NationalRailAPIError(
+                f"Unexpected arrival board response type: {type(data).__name__}"
+            )
+        board = data.get("GetStationBoardResult", data)
+        if not isinstance(board, dict):
+            raise NationalRailAPIError(
+                f"Unexpected station board structure: {type(board).__name__}"
+            )
+        return [
+            s
+            for s in self._extract_service_items(board, "trainServices")
+            if isinstance(s, dict)
+        ]
+
+    async def get_service_details(self, service_id: str) -> dict[str, Any]:
+        """Get details for one service, relative to the board that issued the ID.
+
+        A service ID is only valid while the service is on that board (about
+        two minutes after departure, or after a terminal arrival), so an
+        expired ID is an expected failure. It is not retried.
+
+        Args:
+            service_id: Service ID taken from a board response
+
+        Returns:
+            The raw service details
+
+        Raises:
+            NationalRailAPIError: If the ID is no longer available or the
+                response is not a service details object
+        """
+        data = await self._request(f"GetServiceDetails/{service_id}", max_retries=0)
+        if isinstance(data, dict):
+            details = data.get("GetServiceDetailsResult", data)
+            if isinstance(details, dict):
+                return details
+        raise NationalRailAPIError(
+            f"Unexpected service details response type: {type(data).__name__}"
+        )
+
     def _parse_departure_board(self, data: dict[str, Any], destination_crs: str | None = None) -> dict[str, Any]:
         """Parse departure board response.
 
