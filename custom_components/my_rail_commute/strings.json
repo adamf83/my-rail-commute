@@ -86,13 +86,13 @@
         },
         "data_description": {
           "delay_repay_thresholds": "Delay lengths that qualify for compensation. The usual scheme is 15, 30, 60 and 120. Used for every operator without an override.",
-          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120 | https://example.com/claim'. Lines starting with # are ignored."
+          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120'. Add a claim link after a '|' if you want one stored with the journey. Lines starting with # are ignored."
         }
       }
     },
     "error": {
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
-      "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional '| https://link'."
+      "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional claim link after a '|'."
     }
   },
   "entity": {
