@@ -1374,6 +1374,8 @@ class DelayRepayClaimsSensor(NationalRailCommuteEntity, SensorEntity):
         shown = unclaimed[:DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS]
         oldest = unclaimed[-1] if unclaimed else None
         return {
+            # The card needs the config entry ID to call the claim services
+            "entry_id": self._entry.entry_id,
             ATTR_CLAIMS: [claim_to_dict(r, tracker) for r in shown],
             ATTR_CLAIMS_TRUNCATED: len(unclaimed) > len(shown),
             ATTR_PENDING_COUNT: len(tracker.records((ClaimStatus.PENDING,))),
