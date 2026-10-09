@@ -42,6 +42,19 @@
           "only_catchable_services": "Only Show Catchable Services (hide trains you can't make the connection for)"
         }
       },
+      "delay_repay": {
+        "title": "Delay Repay",
+        "description": "Choose which delays are worth claiming for. The defaults suit most operators and can be changed later in the options.",
+        "data": {
+          "delay_repay_thresholds": "Delay Repay thresholds (minutes, comma separated)",
+          "delay_repay_operators": "Operator overrides (one per line: Operator = 15,30,60 | claim link)",
+          "delay_repay_claim_window_days": "Days to claim before a journey expires"
+        },
+        "data_description": {
+          "delay_repay_thresholds": "Delay lengths that qualify for compensation. The usual scheme is 15, 30, 60 and 120. Used for every operator without an override.",
+          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120'. Add a claim link after a '|' if you want one stored with the journey. Lines starting with # are ignored."
+        }
+      },
       "return_journey": {
         "title": "Return Journey",
         "description": "Would you also like to set up the return journey from {destination} to {origin}? It will use the same settings as this commute.",
@@ -59,6 +72,7 @@
       "same_station": "Origin and destination stations must be different.",
       "same_as_destination": "This is already your final destination — continue instead of adding it as a connecting leg.",
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
+      "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional claim link after a '|'.",
       "unknown": "An unexpected error occurred. Please try again."
     },
     "abort": {

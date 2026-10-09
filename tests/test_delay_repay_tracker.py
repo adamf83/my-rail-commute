@@ -86,6 +86,8 @@ async def test_cancelled_train_without_arrival_times_is_recorded():
         await tracker.async_observe(single_leg([service]), NOW)
         (record,) = tracker.records()
         assert record.is_cancelled is True
+        # A cancellation is a fact on the board, not a forecast
+        assert record.confirmation is Confirmation.CONFIRMED
         assert record.live_until == "2026-10-08T22:50:00+00:00"
 
 

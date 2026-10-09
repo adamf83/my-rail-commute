@@ -152,3 +152,11 @@ async def test_eligible_binary_sensor_without_tracker():
     sensor = DelayRepayEligibleSensor(_coordinator(None), _entry())
     assert sensor.is_on is False
     assert sensor.extra_state_attributes == {}
+
+
+async def test_claims_sensor_exposes_entry_id_for_cards():
+    """Cards need the entry ID to call the mark-claimed and dismiss services."""
+    with fake_storage():
+        tracker, _ = await make_tracker()
+        sensor = DelayRepayClaimsSensor(_coordinator(tracker), _entry())
+        assert sensor.extra_state_attributes["entry_id"] == "entry1"

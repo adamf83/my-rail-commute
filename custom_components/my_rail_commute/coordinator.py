@@ -453,13 +453,13 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         filtered_services = []
 
         for service in services:
-            # Skip cancelled trains - they should be shown regardless of time
+            # Cancelled trains never run, so there is no expected departure;
+            # judge them on their scheduled time like any other train so they
+            # drop off the board once the slot has passed
             if service.get("is_cancelled", False):
-                filtered_services.append(service)
-                continue
-
+                departure_time = service.get("scheduled_departure")
             # Get departure time (prefer expected, fallback to scheduled)
-            if "expected_departure" in service:
+            elif "expected_departure" in service:
                 departure_time = service["expected_departure"]
             else:
                 departure_time = service.get("scheduled_departure")

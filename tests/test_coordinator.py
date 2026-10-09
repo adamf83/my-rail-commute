@@ -148,3 +148,31 @@ async def test_filter_departed_trains_keeps_invalid_time_format(
 
     # Service should be kept since the time format is invalid/unparseable
     assert len(result) == 1
+
+
+@pytest.mark.parametrize(
+    ("scheduled", "kept"),
+    [
+        ("12:30", True),   # still to come
+        ("11:55", True),   # inside the grace period
+        ("08:00", False),  # long gone
+    ],
+)
+async def test_filter_departed_trains_ages_out_cancelled_trains(
+    hass: HomeAssistant, scheduled: str, kept: bool
+) -> None:
+    """Cancelled trains leave the board once their scheduled slot has passed."""
+    test_time = datetime(2024, 1, 15, 12, 0, 0, tzinfo=dt_util.UTC)
+    with patch(
+        "custom_components.my_rail_commute.coordinator.dt_util.now",
+        return_value=test_time,
+    ):
+        coordinator = NationalRailDataUpdateCoordinator(
+            hass, AsyncMock(), _make_config()
+        )
+        service = {
+            "scheduled_departure": scheduled,
+            "expected_departure": None,
+            "is_cancelled": True,
+        }
+        assert (len(coordinator._filter_departed_trains([service])) == 1) is kept

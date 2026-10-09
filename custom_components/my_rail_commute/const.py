@@ -220,6 +220,7 @@ SERVICE_MARK_DELAY_REPAY_CLAIMED: Final = "mark_delay_repay_claimed"
 SERVICE_DISMISS_DELAY_REPAY: Final = "dismiss_delay_repay"
 SERVICE_GET_DELAY_REPAY_CLAIMS: Final = "get_delay_repay_claims"
 
+ATTR_ENTRY_ID: Final = "entry_id"
 ATTR_CLAIMS: Final = "claims"
 ATTR_CLAIMS_TRUNCATED: Final = "claims_truncated"
 ATTR_PENDING_COUNT: Final = "pending_count"
