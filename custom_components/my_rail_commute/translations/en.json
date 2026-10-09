@@ -37,6 +37,7 @@
           "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates",
           "departed_train_grace_period": "Departed Train Grace Period (minutes)",
+          "delay_repay_enabled": "Track Delay Repay claims",
           "min_connection_time": "Minimum Connection Time (minutes)",
           "only_catchable_services": "Only Show Catchable Services (hide trains you can't make the connection for)"
         }

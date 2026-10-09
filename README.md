@@ -149,9 +149,9 @@ The integration creates multiple sensors for each configured commute:
 
 ### 8. Delay Repay Claims (opt-in)
 
-Tracks late and cancelled journeys that may qualify for [Delay Repay](https://www.nationalrail.co.uk/help-and-support/refunds-and-compensation/) compensation, so you can claim in bulk later. Enable it under **Configure → Track Delay Repay claims**. It is off by default and adds nothing until enabled.
+Tracks late and cancelled journeys that may qualify for [Delay Repay](https://www.nationalrail.co.uk/help-and-support/refunds-and-compensation/) compensation, so you can claim in bulk later. Enable it with **Track Delay Repay claims** when adding a commute, or later under **Configure**. It is off by default and adds nothing until enabled.
 
-- **Delay Repay Claims** (`sensor.{commute_name}_delay_repay_claims`): number of unclaimed journeys. The `claims` attribute lists the most recent 30 (date, leg, route, scheduled and expected arrival, delay minutes, tier, operator, service ID, delay reason, claim link and claim deadline), with `claims_truncated`, `pending_count`, `oldest_unclaimed_date` and `oldest_claim_deadline`.
+- **Delay Repay Claims** (`sensor.{commute_name}_delay_repay_claims`): number of unclaimed journeys. The `claims` attribute lists the most recent 30 (date, leg, route, scheduled and expected arrival, delay minutes, tier, operator, service ID, delay reason, claim link and claim deadline), with `claims_truncated`, `pending_count`, `pending_claims` (live late or cancelled journeys that become claimable once they finish), `oldest_unclaimed_date` and `oldest_claim_deadline`.
 - **Delay Repay Eligible** (`binary_sensor.{commute_name}_delay_repay_eligible`): on while a journey today may be claimable, so it can trigger a same-day notification.
 
 **Important:** delays are currently taken from the live departure board's forecast arrival time, not a confirmed actual arrival. Treat each entry as "may be eligible" and check the real arrival time before you claim. Journeys are recorded per leg for multi-leg commutes, and a cancelled train is always listed.

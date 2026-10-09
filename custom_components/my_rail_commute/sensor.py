@@ -49,6 +49,7 @@ from .const import (
     ATTR_OPERATOR,
     ATTR_ORIGIN,
     ATTR_ORIGIN_NAME,
+    ATTR_PENDING_CLAIMS,
     ATTR_PENDING_COUNT,
     ATTR_PLATFORM,
     ATTR_REVERSE_AVG_DELAY_7D,
@@ -1373,10 +1374,17 @@ class DelayRepayClaimsSensor(NationalRailCommuteEntity, SensorEntity):
         unclaimed = tracker.unclaimed()
         shown = unclaimed[:DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS]
         oldest = unclaimed[-1] if unclaimed else None
+        pending = tracker.records((ClaimStatus.PENDING,))
         return {
             ATTR_CLAIMS: [claim_to_dict(r, tracker) for r in shown],
             ATTR_CLAIMS_TRUNCATED: len(unclaimed) > len(shown),
-            ATTR_PENDING_COUNT: len(tracker.records((ClaimStatus.PENDING,))),
+            ATTR_PENDING_COUNT: len(pending),
+            # Live late/cancelled journeys that can't be claimed until they
+            # finish; lets a card show why a train is flagged
+            ATTR_PENDING_CLAIMS: [
+                claim_to_dict(r, tracker)
+                for r in pending[:DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS]
+            ],
             ATTR_OLDEST_UNCLAIMED_DATE: oldest.date if oldest else None,
             ATTR_OLDEST_CLAIM_DEADLINE: (
                 tracker.claim_deadline(oldest) if oldest else None
