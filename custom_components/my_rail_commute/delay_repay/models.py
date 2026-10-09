@@ -199,6 +199,9 @@ class ClaimRecord:
     first_seen: str  # ISO
     last_updated: str  # ISO
     delay_reason: str | None = None
+    # Forecast arrival datetime (ISO), the start of the confirmation window
+    expected_arrival_at: str | None = None
+    confirm_attempts: int = 0
 
     @property
     def key(self) -> str:
