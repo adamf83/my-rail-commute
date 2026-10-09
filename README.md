@@ -209,7 +209,7 @@ data:
   to_date: "2026-10-31"
 ```
 
-`my_rail_commute.get_delay_repay_claims` returns the full outstanding list (the sensor attribute is capped); pass `include_handled: true` to include claimed, dismissed and expired journeys.
+`my_rail_commute.get_delay_repay_claims` returns the full outstanding list (the sensor attribute is capped); pass `include_handled: true` to include claimed, dismissed and expired journeys. Pass `journeys` (a list of keys) to fetch specific journeys of any status; each is returned with a `details` snapshot of the service as last seen live (platform, and calling points with scheduled and expected times). The snapshot is left out of the sensor attribute to keep it under the recorder's size limit; the attribute carries `has_details` instead.
 
 ## Prerequisites
 

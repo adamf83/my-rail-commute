@@ -194,3 +194,76 @@ async def test_claim_to_dict_adds_key_url_and_deadline():
         assert data["claim_url"] is None
         assert data["claim_deadline"] == "2026-11-05"
         assert data["tier"] == 15
+
+
+STOPS = [
+    {
+        "name": "London Bridge",
+        "crs": "LBG",
+        "scheduled": "22:53",
+        "expected": "23:10",
+        "is_cancelled": False,
+    }
+]
+
+
+async def test_get_claims_includes_details_but_attributes_do_not():
+    with fake_storage():
+        tracker, _ = await make_tracker()
+        service = late_service(platform="2", calling_point_details=STOPS)
+        await tracker.async_observe(single_leg([service]), NOW)
+        record = tracker.records()[0]
+        assert record.details == {
+            "platform": "2",
+            "service_type": "train",
+            "expected_departure": "22:40",
+            "departure_delay_minutes": 0,
+            "calling_points": STOPS,
+        }
+
+        # Sensor attributes stay small: a flag, not the snapshot
+        slim = claim_to_dict(record, tracker)
+        assert slim["has_details"] is True
+        assert "details" not in slim
+        assert claim_to_dict(record, tracker, include_details=True)["details"]
+
+
+async def test_get_claims_by_journey_returns_any_status_with_details():
+    with fake_storage():
+        tracker, _ = await make_tracker()
+        await tracker.async_observe(
+            single_leg([late_service(calling_point_details=STOPS)]), NOW
+        )
+        # Still pending (live): not in the default list, but fetchable by key
+        coordinator = MagicMock()
+        coordinator.delay_repay = tracker
+        hass = MagicMock()
+        hass.data = {DOMAIN: {"entry1": coordinator}}
+        handlers = _register(hass)
+        get = handlers[SERVICE_GET_DELAY_REPAY_CLAIMS]
+
+        assert (await get(_Call(entry_id="entry1", include_handled=False)))[
+            "claims"
+        ] == []
+        result = await get(
+            _Call(entry_id="entry1", include_handled=False, journeys=[KEY, "nope"])
+        )
+        (claim,) = result["claims"]
+        assert claim["status"] == "pending"
+        assert claim["details"]["calling_points"] == STOPS
+
+
+async def test_record_without_details_reports_none():
+    with fake_storage():
+        tracker, _ = await make_tracker()
+        await tracker.async_observe(single_leg([late_service()]), NOW)
+        record = tracker.records()[0]
+        assert record.details["calling_points"] == []
+        # A record stored before details existed loads with details None
+        data = record.to_dict()
+        data.pop("details")
+        from custom_components.my_rail_commute.delay_repay.models import ClaimRecord
+
+        old = ClaimRecord.from_dict(data)
+        assert old.details is None
+        assert claim_to_dict(old, tracker)["has_details"] is False

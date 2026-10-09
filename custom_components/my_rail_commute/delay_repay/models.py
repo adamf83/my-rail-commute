@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta
 from enum import StrEnum
 import re
-from typing import Final
+from typing import Any, Final
 
 _CLOCK_RE: Final = re.compile(r"^(\d{2}):(\d{2})$")
 _MINUTES_PER_DAY: Final = 24 * 60
@@ -202,6 +202,10 @@ class ClaimRecord:
     # Forecast arrival datetime (ISO), the start of the confirmation window
     expected_arrival_at: str | None = None
     confirm_attempts: int = 0
+    # Snapshot of the service as last seen live (platform, stops and their
+    # times). The origin service ID expires once the train leaves the board,
+    # so this is kept for showing the journey later.
+    details: dict[str, Any] | None = None
 
     @property
     def key(self) -> str:

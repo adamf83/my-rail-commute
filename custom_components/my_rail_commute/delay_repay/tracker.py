@@ -175,6 +175,7 @@ class DelayRepayTracker:
                 else None
             ),
             confirm_attempts=existing.confirm_attempts if existing else 0,
+            details=_service_details(service),
         )
         if existing is not None and _same_content(existing, record):
             return False
@@ -225,6 +226,15 @@ class DelayRepayTracker:
     ) -> bool:
         """Record an attempt and, if the arrival is known, upgrade the record."""
         if observation is None or not observation.has_outcome:
+            _LOGGER.debug(
+                "Journey %s still estimated (attempt %s of %s): %s",
+                record.key,
+                record.confirm_attempts + 1,
+                DELAY_REPAY_CONFIRM_MAX_ATTEMPTS,
+                "not on the destination board or details unavailable"
+                if observation is None
+                else "no actual arrival reported yet",
+            )
             self._store.set(
                 replace(record, confirm_attempts=record.confirm_attempts + 1)
             )
@@ -364,6 +374,17 @@ class DelayRepayTracker:
     def claim_url(self, record: ClaimRecord) -> str | None:
         """Return the configured claim link for the record's operator."""
         return self.schemes.for_operator(record.operator).claim_url
+
+
+def _service_details(service: dict[str, Any]) -> dict[str, Any]:
+    """Return the live service snapshot kept on a claim record."""
+    return {
+        "platform": service.get("platform") or None,
+        "service_type": service.get("service_type") or "train",
+        "expected_departure": service.get("expected_departure"),
+        "departure_delay_minutes": service.get("delay_minutes"),
+        "calling_points": service.get("calling_point_details") or [],
+    }
 
 
 def _same_content(a: ClaimRecord, b: ClaimRecord) -> bool:

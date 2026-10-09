@@ -33,9 +33,19 @@ _ALL_SERVICES = (
 )
 
 
-def claim_to_dict(record: ClaimRecord, tracker: DelayRepayTracker) -> dict[str, Any]:
-    """Return a record as a plain dict for attributes and service responses."""
+def claim_to_dict(
+    record: ClaimRecord, tracker: DelayRepayTracker, *, include_details: bool = False
+) -> dict[str, Any]:
+    """Return a record as a plain dict for attributes and service responses.
+
+    The service snapshot is left out by default: with up to 30 claims in a
+    sensor attribute it would push the state past the recorder's 16KB limit,
+    so it is only returned by the get service.
+    """
     data = record.to_dict()
+    data["has_details"] = bool(record.details)
+    if not include_details:
+        data.pop("details", None)
     data["key"] = record.key
     data["claim_url"] = tracker.claim_url(record)
     data["claim_deadline"] = tracker.claim_deadline(record)
@@ -81,9 +91,20 @@ def async_register_services(hass: HomeAssistant) -> None:
 
     async def _get_claims(call: ServiceCall) -> dict[str, Any]:
         _, tracker = _tracker_for(hass, call.data["entry_id"])
-        statuses = None if call.data["include_handled"] else (ClaimStatus.ELIGIBLE,)
+        keys = set(call.data.get("journeys") or [])
+        if keys:
+            # Asking for specific journeys: any status, so a card can show the
+            # details of a live or handled one
+            records = [r for r in tracker.records() if r.key in keys]
+        else:
+            statuses = (
+                None if call.data["include_handled"] else (ClaimStatus.ELIGIBLE,)
+            )
+            records = tracker.records(statuses)
         return {
-            "claims": [claim_to_dict(r, tracker) for r in tracker.records(statuses)]
+            "claims": [
+                claim_to_dict(r, tracker, include_details=True) for r in records
+            ]
         }
 
     if not hass.services.has_service(DOMAIN, SERVICE_MARK_DELAY_REPAY_CLAIMED):
@@ -107,6 +128,7 @@ def async_register_services(hass: HomeAssistant) -> None:
                 {
                     vol.Required("entry_id"): cv.string,
                     vol.Optional("include_handled", default=False): cv.boolean,
+                    vol.Optional("journeys"): vol.All(cv.ensure_list, [cv.string]),
                 }
             ),
             supports_response=SupportsResponse.ONLY,

@@ -198,3 +198,9 @@ get_delay_repay_claims:
       default: false
       selector:
         boolean: {}
+    journeys:
+      name: Journeys
+      description: Return only these journeys (by key, any status), each with its service details such as platform and calling points.
+      required: false
+      selector:
+        object: {}
