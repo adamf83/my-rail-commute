@@ -360,8 +360,11 @@ class NationalRailAPI:
                         if retry_count < max_retries:
                             wait_time = 2 ** retry_count
                             _LOGGER.warning(
-                                "Server error %s, retrying in %s seconds (attempt %s/%s)",
+                                "Server error %s from the %s product (%s), "
+                                "retrying in %s seconds (attempt %s/%s)",
                                 response.status,
+                                _PRODUCT_LABELS[product],
+                                endpoint.split("/", 1)[0],
                                 wait_time,
                                 retry_count + 1,
                                 max_retries,
@@ -370,7 +373,13 @@ class NationalRailAPI:
                             return await self._request(
                                 endpoint, params, retry_count + 1, max_retries, product
                             )
-                        _LOGGER.error("API server error %s after %s retries", response.status, max_retries)
+                        _LOGGER.error(
+                            "API server error %s from the %s product (%s) after %s retries",
+                            response.status,
+                            _PRODUCT_LABELS[product],
+                            endpoint.split("/", 1)[0],
+                            max_retries,
+                        )
                         raise NationalRailAPIError(f"API server error {response.status}: {ERROR_API_UNAVAILABLE}")
 
                     # Check for other non-success status codes
