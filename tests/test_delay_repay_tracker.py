@@ -91,6 +91,16 @@ async def test_cancelled_train_without_arrival_times_is_recorded():
         assert record.live_until == "2026-10-08T22:50:00+00:00"
 
 
+async def test_cancelled_train_is_claimable_immediately():
+    with fake_storage():
+        tracker, _ = await make_tracker()
+        await tracker.async_observe(
+            single_leg([make_service(is_cancelled=True)]), NOW
+        )
+        (record,) = tracker.unclaimed()
+        assert record.status is ClaimStatus.ELIGIBLE
+
+
 async def test_pending_record_follows_the_forecast():
     with fake_storage():
         tracker, _ = await make_tracker()

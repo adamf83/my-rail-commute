@@ -164,7 +164,13 @@ class DelayRepayTracker:
             confirmation=(
                 Confirmation.CONFIRMED if assessment.is_cancelled else Confirmation.ESTIMATED
             ),
-            status=ClaimStatus.PENDING,
+            # A cancellation is final, so it is claimable straight away rather
+            # than waiting for a journey that will never run
+            status=(
+                ClaimStatus.ELIGIBLE
+                if assessment.is_cancelled
+                else ClaimStatus.PENDING
+            ),
             live_until=live_until.isoformat(),
             first_seen=existing.first_seen if existing else now.isoformat(),
             last_updated=now.isoformat(),
@@ -307,7 +313,8 @@ class DelayRepayTracker:
                 continue
             status = record.status
             if status is ClaimStatus.PENDING and (
-                datetime.fromisoformat(record.live_until) <= now
+                record.is_cancelled
+                or datetime.fromisoformat(record.live_until) <= now
             ):
                 status = ClaimStatus.ELIGIBLE
             if status is ClaimStatus.ELIGIBLE and record.date < expiry_cutoff:
