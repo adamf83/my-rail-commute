@@ -25,7 +25,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from ..api import NationalRailAPIError
+from ..api import AuthenticationError, NationalRailAPIError
 from ..const import (
     CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     CONF_DELAY_REPAY_OPERATORS,
@@ -74,6 +74,10 @@ class DelayRepayTracker:
         # Set by setup once an API client is available; without one every
         # record stays an estimate
         self.confirmation_source: ConfirmationSource | None = None
+        # Set once a key is rejected, so one warning is logged and confirmation
+        # stops until the entry is reloaded with a working key
+        self._confirmation_blocked = False
+        self._warned_keys: set[str] = set()
 
     # --- Observation -------------------------------------------------------
 
@@ -206,15 +210,30 @@ class DelayRepayTracker:
     async def _confirm_due(self, now: datetime) -> bool:
         """Ask the confirmation source about journeys due for a check."""
         source = self.confirmation_source
-        if source is None:
+        if source is None or self._confirmation_blocked:
             return False
         changed = False
         for record in self._confirmation_candidates(now):
             try:
                 observation = await source.async_fetch(record)
+            except AuthenticationError as err:
+                self._confirmation_blocked = True
+                _LOGGER.warning(
+                    "Delay Repay journeys will stay estimated: the arrival "
+                    "board or service details API key was rejected (%s). "
+                    "Check the keys in the integration options",
+                    err,
+                )
+                break
             except NationalRailAPIError as err:
-                _LOGGER.debug("Could not confirm %s: %s", record.key, err)
-                observation = None
+                # An outage says nothing about the journey, so it is not
+                # counted as an attempt and is retried on the next update
+                if record.key not in self._warned_keys:
+                    self._warned_keys.add(record.key)
+                    _LOGGER.warning(
+                        "Could not confirm %s yet, will retry: %s", record.key, err
+                    )
+                continue
             changed |= self._apply_observation(record, observation, now)
         return changed
 

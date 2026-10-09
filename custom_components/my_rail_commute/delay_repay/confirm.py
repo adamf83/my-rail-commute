@@ -3,17 +3,29 @@
 A service ID is specific to the board that issued it and only works while the
 train is on that board, so the departure-board ID is useless once the train
 has left. Instead the destination's arrivals board is queried for the same
-train, and the details of that arrival-side ID report the actual arrival
-(``ata``, see :mod:`parsing`).
+train. Its entry is read for an actual arrival (``ata``) and, failing that, the
+details of that arrival-side ID are asked for it (see :mod:`parsing`).
+
+The arrival board and service details are separate Rail Data products, each
+needing its own API key (see :class:`~..api.NationalRailAPI`).
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import logging
 import re
 from typing import Any, Protocol
 
-from ..api import NationalRailAPI, NationalRailAPIError
+from homeassistant.util import dt as dt_util
+
+from ..api import (
+    PRODUCT_SERVICE_DETAILS,
+    AuthenticationError,
+    NationalRailAPI,
+    NationalRailAPIError,
+)
+from ..const import ARRIVAL_BOARD_LEAD_MINUTES, ARRIVAL_BOARD_MAX_LOOKBACK_MINUTES
 from .models import ClaimRecord
 from .parsing import ArrivalObservation, observation_from_board_details
 
@@ -82,6 +94,23 @@ def match_arrival_service(
     return None
 
 
+def board_lookup_range(record: ClaimRecord, now: datetime) -> tuple[int, int]:
+    """Return the (time offset, time window) minutes for an arrivals lookup.
+
+    The board lists trains by scheduled time starting at ``now + offset``, so
+    a lookup made long after a late train was due has to look back that far,
+    within what the API allows. The scheduled arrival is recovered from the
+    forecast and the delay recorded with it.
+    """
+    if record.expected_arrival_at is None:
+        return -ARRIVAL_BOARD_LEAD_MINUTES, 45
+    expected = datetime.fromisoformat(record.expected_arrival_at)
+    scheduled = expected - timedelta(minutes=record.delay_minutes or 0)
+    minutes_ago = max(int((now - scheduled).total_seconds() // 60), 0)
+    lookback = min(minutes_ago + ARRIVAL_BOARD_LEAD_MINUTES, ARRIVAL_BOARD_MAX_LOOKBACK_MINUTES)
+    return -lookback, min(max(lookback + 15, 30), 120)
+
+
 def details_ids(service: dict[str, Any]) -> list[str]:
     """Return the IDs worth trying for a details lookup, best first.
 
@@ -105,7 +134,13 @@ class DestinationBoardSource:
 
     async def async_fetch(self, record: ClaimRecord) -> ArrivalObservation | None:
         """Look the train up at its destination and read its actual arrival."""
-        services = await self._api.get_arrival_board(record.destination, record.origin)
+        offset, window = board_lookup_range(record, dt_util.now())
+        services = await self._api.get_arrival_board(
+            record.destination,
+            record.origin,
+            time_offset=offset,
+            time_window=window,
+        )
         service = match_arrival_service(services, record)
         if service is None:
             _LOGGER.debug(
@@ -117,9 +152,24 @@ class DestinationBoardSource:
         if service.get("isCancelled") is True:
             return ArrivalObservation(is_cancelled=True)
 
+        # The board entry itself may already carry the actual arrival
+        observation = observation_from_board_details(service)
+        if observation.has_outcome:
+            return observation
+
+        if not self._api.has_product(PRODUCT_SERVICE_DETAILS):
+            _LOGGER.debug(
+                "No service details key configured; cannot read the actual "
+                "arrival of %s",
+                record.key,
+            )
+            return observation
+
         for service_id in details_ids(service):
             try:
                 details = await self._api.get_service_details(service_id)
+            except AuthenticationError:
+                raise
             except NationalRailAPIError as err:
                 _LOGGER.debug("Service details unavailable for %s: %s", record.key, err)
                 continue

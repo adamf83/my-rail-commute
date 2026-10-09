@@ -14,6 +14,7 @@ from aiohttp import ClientError, ClientResponseError
 
 from .const import (
     API_BASE_URL,
+    ARRIVAL_API_BASE_URL,
     API_TIMEOUT,
     ERROR_API_UNAVAILABLE,
     ERROR_AUTH,
@@ -22,11 +23,24 @@ from .const import (
     ERROR_RATE_LIMIT,
     STATUS_CANCELLED,
     STATUS_DELAYED,
+    SERVICE_DETAILS_API_BASE_URL,
     STATUS_ON_TIME,
     USER_AGENT,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Rail Data Marketplace sells each LDBWS operation group as a separate product
+# with its own subscription and API key
+PRODUCT_DEPARTURE = "departure"
+PRODUCT_ARRIVAL = "arrival"
+PRODUCT_SERVICE_DETAILS = "service_details"
+
+_PRODUCT_LABELS = {
+    PRODUCT_DEPARTURE: "departure board",
+    PRODUCT_ARRIVAL: "arrival board",
+    PRODUCT_SERVICE_DETAILS: "service details",
+}
 
 _TIME_FORMAT_RE = re.compile(r"^\d{2}:\d{2}$")
 
@@ -46,6 +60,10 @@ class NationalRailAPIError(Exception):
 
 class AuthenticationError(NationalRailAPIError):
     """Authentication failed."""
+
+
+class MissingAPIKeyError(AuthenticationError):
+    """No API key is configured for the product an endpoint belongs to."""
 
 
 class InvalidStationError(NationalRailAPIError):
@@ -74,6 +92,8 @@ class NationalRailAPI:
         session: aiohttp.ClientSession,
         rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE,
         rate_limit_per_hour: int = DEFAULT_RATE_LIMIT_PER_HOUR,
+        arrival_api_key: str | None = None,
+        service_details_api_key: str | None = None,
     ) -> None:
         """Initialize the API client.
 
@@ -82,20 +102,47 @@ class NationalRailAPI:
             session: aiohttp client session
             rate_limit_per_minute: Maximum requests per minute
             rate_limit_per_hour: Maximum requests per hour
+            arrival_api_key: Key for the arrival board product (used to
+                confirm actual arrivals); None if not subscribed
+            service_details_api_key: Key for the service details product;
+                None if not subscribed
         """
         self._api_key = api_key
         self._session = session
         self._base_url = API_BASE_URL
-        self._headers = {
-            "x-apikey": api_key,
-            "User-Agent": USER_AGENT,
-            "Accept": "application/json",
+        self._headers = self._build_headers(api_key)
+        # Product -> (base URL, headers); a product without a key is absent
+        self._products: dict[str, tuple[str, dict[str, str]]] = {
+            PRODUCT_DEPARTURE: (API_BASE_URL, self._headers),
         }
+        if arrival_api_key:
+            self._products[PRODUCT_ARRIVAL] = (
+                ARRIVAL_API_BASE_URL,
+                self._build_headers(arrival_api_key),
+            )
+        if service_details_api_key:
+            self._products[PRODUCT_SERVICE_DETAILS] = (
+                SERVICE_DETAILS_API_BASE_URL,
+                self._build_headers(service_details_api_key),
+            )
 
         # Rate limit tracking
         self._rate_limit_per_minute = rate_limit_per_minute
         self._rate_limit_per_hour = rate_limit_per_hour
         self._call_timestamps: deque[datetime] = deque()  # Sliding window of API call times
+
+    @staticmethod
+    def _build_headers(api_key: str) -> dict[str, str]:
+        """Return the request headers for an API key."""
+        return {
+            "x-apikey": api_key,
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+        }
+
+    def has_product(self, product: str) -> bool:
+        """Return True if a key is configured for the product."""
+        return product in self._products
 
     def _clean_old_calls(self, window_minutes: int) -> None:
         """Remove API call timestamps older than the specified window.
@@ -229,6 +276,7 @@ class NationalRailAPI:
         params: dict[str, Any] | None = None,
         retry_count: int = 0,
         max_retries: int = 3,
+        product: str = PRODUCT_DEPARTURE,
     ) -> dict[str, Any]:
         """Make an API request with retry logic.
 
@@ -237,24 +285,32 @@ class NationalRailAPI:
             params: Query parameters
             retry_count: Current retry attempt
             max_retries: Maximum number of retries
+            product: Which Rail Data product (and so base URL and key) to use
 
         Returns:
             Parsed JSON response
 
         Raises:
+            MissingAPIKeyError: If no key is configured for the product
             AuthenticationError: If authentication fails
             RateLimitError: If rate limit is exceeded
             NationalRailAPIError: For other API errors
         """
+        if product not in self._products:
+            raise MissingAPIKeyError(
+                f"No API key configured for the {_PRODUCT_LABELS[product]} product"
+            )
+        base_url, headers = self._products[product]
+
         # Proactively check and throttle if approaching rate limits
         await self._throttle_if_needed()
 
-        url = f"{self._base_url}/{endpoint}"
+        url = f"{base_url}/{endpoint}"
 
         try:
             async with asyncio.timeout(API_TIMEOUT):
                 async with self._session.get(
-                    url, headers=self._headers, params=params
+                    url, headers=headers, params=params
                 ) as response:
                     # Log the full request details for debugging
                     _LOGGER.debug(
@@ -266,7 +322,11 @@ class NationalRailAPI:
 
                     # Handle different status codes
                     if response.status == 401 or response.status == 403:
-                        _LOGGER.error("Authentication failed with status %s", response.status)
+                        _LOGGER.error(
+                            "Authentication failed with status %s (%s product)",
+                            response.status,
+                            _PRODUCT_LABELS[product],
+                        )
                         raise AuthenticationError(ERROR_AUTH)
 
                     if response.status == 429:
@@ -279,7 +339,7 @@ class NationalRailAPI:
                             )
                             await asyncio.sleep(wait_time)
                             return await self._request(
-                                endpoint, params, retry_count + 1, max_retries
+                                endpoint, params, retry_count + 1, max_retries, product
                             )
                         raise RateLimitError(ERROR_RATE_LIMIT)
 
@@ -308,7 +368,7 @@ class NationalRailAPI:
                             )
                             await asyncio.sleep(wait_time)
                             return await self._request(
-                                endpoint, params, retry_count + 1, max_retries
+                                endpoint, params, retry_count + 1, max_retries, product
                             )
                         _LOGGER.error("API server error %s after %s retries", response.status, max_retries)
                         raise NationalRailAPIError(f"API server error {response.status}: {ERROR_API_UNAVAILABLE}")
@@ -338,7 +398,7 @@ class NationalRailAPI:
                 )
                 await asyncio.sleep(wait_time)
                 return await self._request(
-                    endpoint, params, retry_count + 1, max_retries
+                    endpoint, params, retry_count + 1, max_retries, product
                 )
             _LOGGER.error("Request timeout after %s retries", max_retries)
             raise NationalRailAPIError(ERROR_NETWORK) from err
@@ -354,7 +414,7 @@ class NationalRailAPI:
                 _LOGGER.warning("Network error, retrying in %s seconds", wait_time)
                 await asyncio.sleep(wait_time)
                 return await self._request(
-                    endpoint, params, retry_count + 1, max_retries
+                    endpoint, params, retry_count + 1, max_retries, product
                 )
             _LOGGER.error("Network error: %s", err)
             raise NationalRailAPIError(ERROR_NETWORK) from err
@@ -414,11 +474,14 @@ class NationalRailAPI:
         time_offset: int = -10,
         time_window: int = 45,
         num_rows: int = 9,
+        max_retries: int = 0,
     ) -> list[dict[str, Any]]:
         """Get raw train services arriving at a station from a given origin.
 
         Used to find the arrival-side service ID of a train that has left its
         origin, since service IDs are specific to the board that issued them.
+        This is a separate Rail Data product from the departure board and needs
+        its own API key.
 
         Args:
             crs: Station the board is for (the journey's destination)
@@ -426,11 +489,14 @@ class NationalRailAPI:
             time_offset: Minutes relative to now at which the board starts
             time_window: Minutes the board covers from the offset
             num_rows: Maximum services (the "with details" board allows < 10)
+            max_retries: Retries on a server error or timeout. The caller polls
+                again soon anyway, so the default is not to block on them.
 
         Returns:
             Raw service items (as returned by the API), possibly empty
 
         Raises:
+            MissingAPIKeyError: If no arrival board key is configured
             NationalRailAPIError: If the request fails or the response is not
                 a station board
         """
@@ -442,7 +508,9 @@ class NationalRailAPI:
             "timeWindow": time_window,
             "numRows": num_rows,
         }
-        data = await self._request(endpoint, params)
+        data = await self._request(
+            endpoint, params, max_retries=max_retries, product=PRODUCT_ARRIVAL
+        )
         if not isinstance(data, dict):
             raise NationalRailAPIError(
                 f"Unexpected arrival board response type: {type(data).__name__}"
@@ -463,7 +531,8 @@ class NationalRailAPI:
 
         A service ID is only valid while the service is on that board (about
         two minutes after departure, or after a terminal arrival), so an
-        expired ID is an expected failure. It is not retried.
+        expired ID is an expected failure. It is not retried. This is a
+        separate Rail Data product and needs its own API key.
 
         Args:
             service_id: Service ID taken from a board response
@@ -472,10 +541,15 @@ class NationalRailAPI:
             The raw service details
 
         Raises:
+            MissingAPIKeyError: If no service details key is configured
             NationalRailAPIError: If the ID is no longer available or the
                 response is not a service details object
         """
-        data = await self._request(f"GetServiceDetails/{service_id}", max_retries=0)
+        data = await self._request(
+            f"GetServiceDetails/{service_id}",
+            max_retries=0,
+            product=PRODUCT_SERVICE_DETAILS,
+        )
         if isinstance(data, dict):
             details = data.get("GetServiceDetailsResult", data)
             if isinstance(details, dict):
@@ -792,6 +866,47 @@ class NationalRailAPI:
         except Exception as err:
             _LOGGER.error("API key validation error: %s", err)
             raise AuthenticationError(ERROR_AUTH) from err
+
+    async def validate_arrival_api_key(self) -> bool:
+        """Validate the arrival board key with a one-row board request.
+
+        Raises:
+            AuthenticationError: If the key is rejected or not configured
+            NationalRailAPIError: If the API cannot be reached
+        """
+        await self._request(
+            "GetArrivalBoard/PAD",
+            {"numRows": 1},
+            max_retries=0,
+            product=PRODUCT_ARRIVAL,
+        )
+        return True
+
+    async def validate_service_details_api_key(self) -> bool:
+        """Check that the service details key is accepted.
+
+        There is no cheap call that always succeeds, so a lookup of an ID that
+        cannot exist is made and only a rejected key counts as a failure: an
+        "unknown service" answer proves the key is valid.
+
+        Raises:
+            AuthenticationError: If the key is rejected or not configured
+            NationalRailAPIError: If the API cannot be reached
+        """
+        try:
+            await self._request(
+                "GetServiceDetails/0000000VALIDATE",
+                max_retries=0,
+                product=PRODUCT_SERVICE_DETAILS,
+            )
+        except (AuthenticationError, RateLimitError):
+            raise
+        except InvalidStationError:
+            pass  # 400/404: the key was accepted, the ID is unknown
+        except NationalRailAPIError as err:
+            if str(err) == ERROR_NETWORK:
+                raise
+        return True
 
     async def close(self) -> None:
         """Close the API client and clean up resources.

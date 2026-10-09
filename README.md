@@ -154,7 +154,15 @@ Tracks late and cancelled journeys that may qualify for [Delay Repay](https://ww
 - **Delay Repay Claims** (`sensor.{commute_name}_delay_repay_claims`): number of unclaimed journeys. The `claims` attribute lists the most recent 30 (date, leg, route, scheduled and expected arrival, delay minutes, tier, operator, service ID, delay reason, claim link and claim deadline), with `claims_truncated`, `pending_count`, `pending_claims` (live late or cancelled journeys that become claimable once they finish), `oldest_unclaimed_date` and `oldest_claim_deadline`.
 - **Delay Repay Eligible** (`binary_sensor.{commute_name}_delay_repay_eligible`): on while a journey today may be claimable, so it can trigger a same-day notification.
 
-**How delays are measured:** a journey is first recorded from the departure board's *forecast* arrival time (`confirmation: estimated`). Around the expected arrival time the integration looks the train up on the destination's arrivals board and, once the train has actually arrived, replaces the forecast with the real arrival time (`confirmation: confirmed`). A forecast that turns out to be under the threshold is removed, and a train cancelled en route becomes a cancellation. This costs a few extra API calls (an arrivals board and a service lookup) only for journeys already forecast as late, for about 30 minutes around their arrival.
+**How delays are measured:** a journey is first recorded from the departure board's *forecast* arrival time (`confirmation: estimated`). From the expected arrival time the integration looks the train up on the destination's arrivals board and, once the train has actually arrived, replaces the forecast with the real arrival time (`confirmation: confirmed`). A forecast that turns out to be under the threshold is removed, and a train cancelled en route becomes a cancellation. This costs a few extra API calls (an arrivals board and a service lookup) only for journeys already forecast as late, for up to two hours after their expected arrival. An API outage doesn't use up the checks; they are retried on the next update.
+
+**Confirming arrivals needs two extra API keys (optional).** Rail Data Marketplace sells the arrivals board and service details as separate products from the departure board, each with its own subscription (free) and its own key, so the key from [Prerequisites](#national-rail-api-key) will not work for them:
+
+1. On [Rail Data Marketplace](https://raildata.org.uk/), subscribe to the **Live Arrival Board** product and copy its key.
+2. Subscribe to the **Service Details** product and copy its key.
+3. Paste them into **Arrival Board API key** and **Service Details API key** when you enable Delay Repay, or later under **Configure**.
+
+You only enter them once: other commutes reuse a key already stored on any commute. Without the arrival board key, journeys simply stay `estimated`, and a warning in the log says so. With only the arrival board key, journeys are confirmed only if the arrivals board itself reports the actual time. If a key is rejected, confirmation stops with one warning in the log until you correct it under **Configure**.
 
 If the arrival can't be confirmed (for example the train is no longer on the destination board), the entry stays an estimate. **Check the real arrival time before you claim** anything marked `estimated`. Journeys are recorded per leg for multi-leg commutes, and a cancelled train is always listed.
 
@@ -222,6 +230,10 @@ You'll need a free API key from the Rail Data Marketplace:
 3. Navigate to the [Live Departure Boards API](https://raildata.org.uk/dataProduct/P-d81d6eaf-8060-4467-a339-1c833e50cbbe/overview)
 4. Subscribe to the API (it's free)
 5. Copy your API key
+
+#### Delay Repay keys (optional)
+
+Only needed to confirm actual arrival times for [Delay Repay claims](#8-delay-repay-claims-opt-in). The arrival board and service details are separate Rail Data Marketplace products, each with their own free subscription and API key. You can add them when you enable Delay Repay or later under **Configure**.
 
 ### Station CRS Codes
 
@@ -575,6 +587,10 @@ cards:
 1. Ensure you've restarted Home Assistant after installation
 2. Check the logs for any errors: **Settings** → **System** → **Logs**
 3. Verify the `custom_components/my_rail_commute` directory exists
+
+### Delay Repay Journeys Stay "estimated"
+- Confirming arrivals needs the **Arrival Board** (and ideally **Service Details**) API keys, which are separate from the departure board key. Check **Configure** and see [Delay Repay Claims](#8-delay-repay-claims-opt-in).
+- Look in the log for `Delay Repay has no arrival board API key` (key missing), `key was rejected` (wrong product or key) or `Could not confirm ... yet, will retry` (the API was unavailable).
 
 ### Authentication Errors
 

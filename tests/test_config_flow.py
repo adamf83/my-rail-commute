@@ -7,6 +7,7 @@ from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
 import pytest
+import voluptuous as vol
 
 from custom_components.my_rail_commute.api import (
     AuthenticationError,
@@ -22,6 +23,7 @@ from custom_components.my_rail_commute.config_flow import (
 from custom_components.my_rail_commute.const import (
     CONF_ADD_LEG,
     CONF_ADD_RETURN_JOURNEY,
+    CONF_ARRIVAL_API_KEY,
     CONF_COMMUTE_NAME,
     CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     CONF_DELAY_REPAY_ENABLED,
@@ -33,6 +35,7 @@ from custom_components.my_rail_commute.const import (
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
+    CONF_SERVICE_DETAILS_API_KEY,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
     DEFAULT_MAJOR_DELAY_THRESHOLD,
@@ -505,6 +508,175 @@ class TestConfigFlow:
         )
         assert CONF_DELAY_REPAY_ENABLED not in result["data"]
 
+    _DR_INPUT = {
+        CONF_DELAY_REPAY_THRESHOLDS: "30,60",
+        CONF_DELAY_REPAY_OPERATORS: "",
+        CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS: 14,
+    }
+
+    async def _to_delay_repay_step(self, hass):
+        result = await self._complete_flow_to_settings(hass, None)
+        return await self._submit_settings(
+            hass, result["flow_id"], **{CONF_DELAY_REPAY_ENABLED: True}
+        )
+
+    async def test_delay_repay_step_asks_for_the_extra_keys_the_first_time(
+        self, hass: HomeAssistant
+    ):
+        """Neither product key is stored yet, so both are offered."""
+        result = await self._to_delay_repay_step(hass)
+        keys = {str(k) for k in result["data_schema"].schema}
+        assert CONF_ARRIVAL_API_KEY in keys
+        assert CONF_SERVICE_DETAILS_API_KEY in keys
+
+    async def test_delay_repay_keys_are_validated_and_stored(
+        self, hass: HomeAssistant
+    ):
+        """Valid arrival board and service details keys are saved on the entry."""
+        result = await self._to_delay_repay_step(hass)
+        with (
+            patch(
+                "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
+                new=AsyncMock(return_value=True),
+            ) as arrival,
+            patch(
+                "custom_components.my_rail_commute.config_flow.validate_service_details_api_key",
+                new=AsyncMock(return_value=True),
+            ) as details,
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={
+                    **self._DR_INPUT,
+                    CONF_ARRIVAL_API_KEY: " arrival-key ",
+                    CONF_SERVICE_DETAILS_API_KEY: "details-key",
+                },
+            )
+        arrival.assert_awaited_once_with(hass, "arrival-key")
+        details.assert_awaited_once_with(hass, "details-key")
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert result["data"][CONF_ARRIVAL_API_KEY] == "arrival-key"
+        assert result["data"][CONF_SERVICE_DETAILS_API_KEY] == "details-key"
+
+    async def test_delay_repay_keys_are_optional(self, hass: HomeAssistant):
+        """Leaving the keys blank is allowed and stores nothing."""
+        result = await self._to_delay_repay_step(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=dict(self._DR_INPUT)
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert CONF_ARRIVAL_API_KEY not in result["data"]
+        assert CONF_SERVICE_DETAILS_API_KEY not in result["data"]
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (AuthenticationError("no"), "invalid_arrival_auth"),
+            (NationalRailAPIError("down"), "cannot_connect"),
+        ],
+    )
+    async def test_delay_repay_rejects_a_bad_arrival_key(
+        self, hass: HomeAssistant, error, expected
+    ):
+        """A rejected or unreachable key flags the field and re-shows the form."""
+        result = await self._to_delay_repay_step(hass)
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
+            new=AsyncMock(side_effect=error),
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={**self._DR_INPUT, CONF_ARRIVAL_API_KEY: "bad"},
+            )
+        assert result["step_id"] == "delay_repay"
+        assert result["errors"] == {CONF_ARRIVAL_API_KEY: expected}
+
+    async def test_delay_repay_rejects_a_bad_service_details_key(
+        self, hass: HomeAssistant
+    ):
+        """A rejected service details key flags that field."""
+        result = await self._to_delay_repay_step(hass)
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_service_details_api_key",
+            new=AsyncMock(side_effect=AuthenticationError("no")),
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={**self._DR_INPUT, CONF_SERVICE_DETAILS_API_KEY: "bad"},
+            )
+        assert result["errors"] == {
+            CONF_SERVICE_DETAILS_API_KEY: "invalid_service_details_auth"
+        }
+
+    async def test_delay_repay_keys_are_not_asked_for_again(
+        self, hass: HomeAssistant
+    ):
+        """Keys already held by another commute are reused, not requested."""
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_API_KEY: "valid_key"},
+            options={
+                CONF_ARRIVAL_API_KEY: "kept-arrival",
+                CONF_SERVICE_DETAILS_API_KEY: "kept-details",
+            },
+            unique_id="SOMEWHERE_ELSE",
+        ).add_to_hass(hass)
+
+        result = await self._to_delay_repay_step(hass)
+        keys = {str(k) for k in result["data_schema"].schema}
+        assert CONF_ARRIVAL_API_KEY not in keys
+        assert CONF_SERVICE_DETAILS_API_KEY not in keys
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=dict(self._DR_INPUT)
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert result["data"][CONF_ARRIVAL_API_KEY] == "kept-arrival"
+        assert result["data"][CONF_SERVICE_DETAILS_API_KEY] == "kept-details"
+
+    async def test_only_the_missing_key_is_asked_for(self, hass: HomeAssistant):
+        """With just the arrival key stored, only the details key is requested."""
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_API_KEY: "valid_key", CONF_ARRIVAL_API_KEY: "kept-arrival"},
+            unique_id="SOMEWHERE_ELSE",
+        ).add_to_hass(hass)
+        result = await self._to_delay_repay_step(hass)
+        keys = {str(k) for k in result["data_schema"].schema}
+        assert CONF_ARRIVAL_API_KEY not in keys
+        assert CONF_SERVICE_DETAILS_API_KEY in keys
+
+    async def test_return_journey_inherits_the_keys(self, hass: HomeAssistant):
+        """The reverse commute is created with the same keys."""
+        result = await self._to_delay_repay_step(hass)
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
+            new=AsyncMock(return_value=True),
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={**self._DR_INPUT, CONF_ARRIVAL_API_KEY: "arrival-key"},
+            )
+        with patch.object(
+            hass.config_entries.flow,
+            "async_init",
+            wraps=hass.config_entries.flow.async_init,
+        ) as mock_init:
+            await hass.config_entries.flow.async_configure(
+                result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: True}
+            )
+        assert mock_init.call_args.kwargs["data"][CONF_ARRIVAL_API_KEY] == "arrival-key"
+
     async def test_return_journey_inherits_delay_repay(self, hass: HomeAssistant):
         """The reverse commute copies the Delay Repay choice."""
         result = await self._complete_flow_to_settings(hass, None)
@@ -698,6 +870,120 @@ class TestOptionsFlow:
         assert result["data"][CONF_SEVERE_DELAY_THRESHOLD] == 20
         assert result["data"][CONF_MAJOR_DELAY_THRESHOLD] == 12
         assert result["data"][CONF_MINOR_DELAY_THRESHOLD] == 5
+
+    async def test_options_flow_offers_and_saves_the_product_keys(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """The arrival board and service details keys can be added later."""
+        mock_config_entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(
+            mock_config_entry.entry_id
+        )
+        keys = {str(k) for k in result["data_schema"].schema}
+        assert CONF_ARRIVAL_API_KEY in keys
+        assert CONF_SERVICE_DETAILS_API_KEY in keys
+
+        with (
+            patch(
+                "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
+                new=AsyncMock(return_value=True),
+            ) as arrival,
+            patch(
+                "custom_components.my_rail_commute.config_flow.validate_service_details_api_key",
+                new=AsyncMock(return_value=True),
+            ),
+        ):
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"],
+                user_input={
+                    **self._BASE_OPTIONS,
+                    CONF_DELAY_REPAY_ENABLED: True,
+                    CONF_ARRIVAL_API_KEY: "arrival-key",
+                    CONF_SERVICE_DETAILS_API_KEY: "details-key",
+                },
+            )
+        arrival.assert_awaited_once_with(hass, "arrival-key")
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_ARRIVAL_API_KEY] == "arrival-key"
+        assert result["data"][CONF_SERVICE_DETAILS_API_KEY] == "details-key"
+
+    async def test_options_flow_rejects_a_bad_key(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """A rejected key keeps the form open with the error on that field."""
+        mock_config_entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(
+            mock_config_entry.entry_id
+        )
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
+            new=AsyncMock(side_effect=AuthenticationError("no")),
+        ):
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"],
+                user_input={
+                    **self._BASE_OPTIONS,
+                    CONF_DELAY_REPAY_ENABLED: True,
+                    CONF_ARRIVAL_API_KEY: "bad",
+                },
+            )
+        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["errors"] == {CONF_ARRIVAL_API_KEY: "invalid_arrival_auth"}
+
+    async def test_options_flow_does_not_revalidate_an_unchanged_key(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Saving other options does not call the API for a stored key."""
+        mock_config_entry.add_to_hass(hass)
+        hass.config_entries.async_update_entry(
+            mock_config_entry, options={CONF_ARRIVAL_API_KEY: "stored"}
+        )
+        result = await hass.config_entries.options.async_init(
+            mock_config_entry.entry_id
+        )
+        with patch(
+            "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
+            new=AsyncMock(),
+        ) as arrival:
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"],
+                user_input={
+                    **self._BASE_OPTIONS,
+                    CONF_DELAY_REPAY_ENABLED: True,
+                    CONF_ARRIVAL_API_KEY: "stored",
+                },
+            )
+        arrival.assert_not_awaited()
+        assert result["data"][CONF_ARRIVAL_API_KEY] == "stored"
+
+    async def test_options_flow_shows_a_key_held_by_another_commute(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """The shared key is the default, so it only needs entering once."""
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_API_KEY: "k", CONF_ARRIVAL_API_KEY: "shared"},
+            unique_id="OTHER",
+        ).add_to_hass(hass)
+        mock_config_entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(
+            mock_config_entry.entry_id
+        )
+        defaults = {
+            str(k): k.default() for k in result["data_schema"].schema if hasattr(k, "default") and k.default is not vol.UNDEFINED
+        }
+        assert defaults[CONF_ARRIVAL_API_KEY] == "shared"
+
+    _BASE_OPTIONS = {
+        CONF_TIME_WINDOW: 60,
+        CONF_NUM_SERVICES: 3,
+        CONF_NIGHT_UPDATES: False,
+        CONF_SEVERE_DELAY_THRESHOLD: 20,
+        CONF_MAJOR_DELAY_THRESHOLD: 12,
+        CONF_MINOR_DELAY_THRESHOLD: 5,
+    }
 
 class TestHaversineDistance:
     """Tests for the haversine distance calculation helper."""

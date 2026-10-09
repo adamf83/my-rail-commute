@@ -48,11 +48,15 @@
         "data": {
           "delay_repay_thresholds": "Delay Repay thresholds (minutes, comma separated)",
           "delay_repay_operators": "Operator overrides (one per line: Operator = 15,30,60 | claim link)",
-          "delay_repay_claim_window_days": "Days to claim before a journey expires"
+          "delay_repay_claim_window_days": "Days to claim before a journey expires",
+          "arrival_api_key": "Arrival Board API key (optional)",
+          "service_details_api_key": "Service Details API key (optional)"
         },
         "data_description": {
           "delay_repay_thresholds": "Delay lengths that qualify for compensation. The usual scheme is 15, 30, 60 and 120. Used for every operator without an override.",
-          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120'. Add a claim link after a '|' if you want one stored with the journey. Lines starting with # are ignored."
+          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120'. Add a claim link after a '|' if you want one stored with the journey. Lines starting with # are ignored.",
+          "arrival_api_key": "Needed to confirm the actual arrival time of late trains. This is a separate Rail Data Marketplace product from the departure board: subscribe to 'Live Arrival Board' (free) and paste its key. Without it, journeys stay marked as estimated.",
+          "service_details_api_key": "Lets the integration read a train's actual arrival from its service details. Also a separate Rail Data Marketplace product ('Service Details'). Only asked for once; other commutes reuse it."
         }
       },
       "return_journey": {
@@ -73,7 +77,9 @@
       "same_as_destination": "This is already your final destination — continue instead of adding it as a connecting leg.",
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
       "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional claim link after a '|'.",
-      "unknown": "An unexpected error occurred. Please try again."
+      "unknown": "An unexpected error occurred. Please try again.",
+      "invalid_arrival_auth": "The Arrival Board API key was rejected. Check you subscribed to the Live Arrival Board product and copied that product's key (it differs from the departure board key).",
+      "invalid_service_details_auth": "The Service Details API key was rejected. Check you subscribed to the Service Details product and copied that product's key."
     },
     "abort": {
       "already_configured": "This route is already configured."
@@ -97,17 +103,23 @@
           "delay_repay_enabled": "Track Delay Repay claims",
           "delay_repay_thresholds": "Delay Repay thresholds (minutes, comma separated)",
           "delay_repay_operators": "Operator overrides (one per line: Operator = 15,30,60 | claim link)",
-          "delay_repay_claim_window_days": "Days to claim before a journey expires"
+          "delay_repay_claim_window_days": "Days to claim before a journey expires",
+          "arrival_api_key": "Arrival Board API key (optional)",
+          "service_details_api_key": "Service Details API key (optional)"
         },
         "data_description": {
           "delay_repay_thresholds": "Delay lengths that qualify for compensation. The usual scheme is 15, 30, 60 and 120. Used for every operator without an override.",
-          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120'. Add a claim link after a '|' if you want one stored with the journey. Lines starting with # are ignored."
+          "delay_repay_operators": "Optional. Operators whose scheme differs, e.g. 'Southern = 30,60,120'. Add a claim link after a '|' if you want one stored with the journey. Lines starting with # are ignored.",
+          "arrival_api_key": "Needed to confirm the actual arrival time of late trains. This is a separate Rail Data Marketplace product from the departure board: subscribe to 'Live Arrival Board' (free) and paste its key. Without it, journeys stay marked as estimated.",
+          "service_details_api_key": "Lets the integration read a train's actual arrival from its service details. Also a separate Rail Data Marketplace product ('Service Details'). Only asked for once; other commutes reuse it."
         }
       }
     },
     "error": {
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
-      "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional claim link after a '|'."
+      "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional claim link after a '|'.",
+      "invalid_arrival_auth": "The Arrival Board API key was rejected. Check you subscribed to the Live Arrival Board product and copied that product's key (it differs from the departure board key).",
+      "invalid_service_details_auth": "The Service Details API key was rejected. Check you subscribed to the Service Details product and copied that product's key."
     }
   },
   "entity": {

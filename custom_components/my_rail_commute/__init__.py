@@ -14,11 +14,13 @@ import voluptuous as vol
 
 from .api import NationalRailAPI
 from .const import (
+    CONF_ARRIVAL_API_KEY,
     CONF_DELAY_REPAY_ENABLED,
     CONF_DESTINATION,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
+    CONF_SERVICE_DETAILS_API_KEY,
     CONF_TIME_WINDOW,
     DOMAIN,
 )
@@ -26,6 +28,7 @@ from .coordinator import NationalRailDataUpdateCoordinator
 from .delay_repay.confirm import DestinationBoardSource
 from .delay_repay.services import async_register_services, async_remove_services
 from .delay_repay.tracker import async_create_tracker
+from .keys import resolve_key
 from .statistics import CommuteStatisticsStore
 
 SERVICE_GET_HISTORICAL_RAW_DATA = "get_historical_raw_data"
@@ -61,7 +64,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Create API client
         session = async_get_clientsession(hass)
-        api = NationalRailAPI(config[CONF_API_KEY], session)
+        # Delay Repay confirmation reads other Rail Data products, each with
+        # its own key; a key entered on one commute serves them all
+        arrival_key = None
+        details_key = None
+        if config.get(CONF_DELAY_REPAY_ENABLED, False):
+            arrival_key = resolve_key(
+                hass, CONF_ARRIVAL_API_KEY, config, entry.entry_id
+            )
+            details_key = resolve_key(
+                hass, CONF_SERVICE_DETAILS_API_KEY, config, entry.entry_id
+            )
+        api = NationalRailAPI(
+            config[CONF_API_KEY],
+            session,
+            arrival_api_key=arrival_key,
+            service_details_api_key=details_key,
+        )
 
         # Create coordinator
         coordinator = NationalRailDataUpdateCoordinator(
@@ -80,7 +99,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             coordinator.delay_repay = await async_create_tracker(
                 hass, entry.entry_id, config
             )
-            coordinator.delay_repay.confirmation_source = DestinationBoardSource(api)
+            if arrival_key:
+                coordinator.delay_repay.confirmation_source = DestinationBoardSource(
+                    api
+                )
+                if not details_key:
+                    _LOGGER.warning(
+                        "Delay Repay has no service details API key, so actual "
+                        "arrivals can only be read from the arrival board and "
+                        "journeys may stay estimated. Add the key in the "
+                        "integration options"
+                    )
+            else:
+                _LOGGER.warning(
+                    "Delay Repay has no arrival board API key, so late journeys "
+                    "will stay estimated. Subscribe to the Live Arrival Board "
+                    "product on Rail Data Marketplace and add its key in the "
+                    "integration options"
+                )
             async_register_services(hass)
 
         # Fetch initial data
