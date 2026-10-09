@@ -216,6 +216,13 @@ DELAY_REPAY_LIVE_GRACE_MINUTES: Final = 10
 # attributes over 16KB); the full list is available via the get service
 DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS: Final = 30
 
+# Confirming a forecast against the actual arrival: the destination board is
+# checked from the expected arrival time until this long afterwards, at most
+# this many times per journey and this many journeys per coordinator update
+DELAY_REPAY_CONFIRM_WINDOW_MINUTES: Final = 30
+DELAY_REPAY_CONFIRM_MAX_ATTEMPTS: Final = 10
+DELAY_REPAY_CONFIRM_MAX_PER_UPDATE: Final = 3
+
 SERVICE_MARK_DELAY_REPAY_CLAIMED: Final = "mark_delay_repay_claimed"
 SERVICE_DISMISS_DELAY_REPAY: Final = "dismiss_delay_repay"
 SERVICE_GET_DELAY_REPAY_CLAIMS: Final = "get_delay_repay_claims"

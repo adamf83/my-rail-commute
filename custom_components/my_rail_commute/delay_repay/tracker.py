@@ -1,13 +1,16 @@
 """Tracks late and cancelled journeys and keeps the Delay Repay claim list.
 
-Lifecycle of a record (forecast-based; confirmation from actual arrivals is
-layered on later):
+Lifecycle of a record:
 
 * A tracked train whose forecast arrival meets a scheme threshold (or which
   is cancelled) becomes a PENDING record. While live it is updated on every
   poll, and removed if the delay falls back below the threshold.
 * Once its scheduled arrival plus a short grace period has passed it is frozen
   as ELIGIBLE using the last forecast.
+* Around the expected arrival time the destination board is asked for the
+  actual arrival. A confirmed record uses the actual delay (and is dropped if
+  the train turned out to be under the threshold); otherwise it stays an
+  estimate from the last forecast.
 * ELIGIBLE records not claimed within the claim window become EXPIRED.
 * The user moves records to CLAIMED or DISMISSED through services.
 """
@@ -22,15 +25,20 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from ..api import NationalRailAPIError
 from ..const import (
     CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     CONF_DELAY_REPAY_OPERATORS,
     CONF_DELAY_REPAY_THRESHOLDS,
     DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     DEFAULT_DELAY_REPAY_THRESHOLDS,
+    DELAY_REPAY_CONFIRM_MAX_ATTEMPTS,
+    DELAY_REPAY_CONFIRM_MAX_PER_UPDATE,
+    DELAY_REPAY_CONFIRM_WINDOW_MINUTES,
     DELAY_REPAY_LIVE_GRACE_MINUTES,
     DELAY_REPAY_RETENTION_EXTRA_DAYS,
 )
+from .confirm import ConfirmationSource
 from .models import (
     ClaimRecord,
     ClaimStatus,
@@ -40,6 +48,7 @@ from .models import (
     claim_key,
     resolve_clock_datetime,
 )
+from .parsing import ArrivalObservation
 from .schemes import SchemeSet, build_scheme_set
 from .store import DelayRepayStore
 
@@ -62,6 +71,9 @@ class DelayRepayTracker:
         self._store = store
         self.schemes = schemes
         self.claim_window_days = claim_window_days
+        # Set by setup once an API client is available; without one every
+        # record stays an estimate
+        self.confirmation_source: ConfirmationSource | None = None
 
     # --- Observation -------------------------------------------------------
 
@@ -73,6 +85,7 @@ class DelayRepayTracker:
         changed = self._maintain(now)
         for leg, origin, destination, service in _iter_services(parsed_data):
             changed |= self._observe_service(now, leg, origin, destination, service)
+        changed |= await self._confirm_due(now)
         saved = await self._store.async_save_if_dirty()
         return changed or saved
 
@@ -125,6 +138,11 @@ class DelayRepayTracker:
         live_until = (arrival_at or departure) + timedelta(
             minutes=DELAY_REPAY_LIVE_GRACE_MINUTES
         )
+        expected_at = arrival_datetime(
+            departure,
+            scheduled_departure,
+            service.get("estimated_arrival") or scheduled_arrival,
+        )
         record = ClaimRecord(
             date=departure.date().isoformat(),
             leg=leg,
@@ -151,10 +169,95 @@ class DelayRepayTracker:
                 if is_cancelled
                 else service.get("delay_reason")
             ),
+            expected_arrival_at=(
+                expected_at.isoformat()
+                if expected_at is not None and not is_cancelled
+                else None
+            ),
+            confirm_attempts=existing.confirm_attempts if existing else 0,
         )
         if existing is not None and _same_content(existing, record):
             return False
         self._store.set(record)
+        return True
+
+    # --- Confirmation ------------------------------------------------------
+
+    def _confirmation_candidates(self, now: datetime) -> list[ClaimRecord]:
+        """Return estimated journeys whose confirmation window is open."""
+        window = timedelta(minutes=DELAY_REPAY_CONFIRM_WINDOW_MINUTES)
+        due = []
+        for record in self._store.values():
+            if (
+                record.status not in _OUTSTANDING
+                or record.confirmation is not Confirmation.ESTIMATED
+                or record.is_cancelled
+                or record.expected_arrival_at is None
+                or record.confirm_attempts >= DELAY_REPAY_CONFIRM_MAX_ATTEMPTS
+            ):
+                continue
+            expected = datetime.fromisoformat(record.expected_arrival_at)
+            if expected <= now <= expected + window:
+                due.append(record)
+        due.sort(key=lambda r: r.expected_arrival_at or "")
+        return due[:DELAY_REPAY_CONFIRM_MAX_PER_UPDATE]
+
+    async def _confirm_due(self, now: datetime) -> bool:
+        """Ask the confirmation source about journeys due for a check."""
+        source = self.confirmation_source
+        if source is None:
+            return False
+        changed = False
+        for record in self._confirmation_candidates(now):
+            try:
+                observation = await source.async_fetch(record)
+            except NationalRailAPIError as err:
+                _LOGGER.debug("Could not confirm %s: %s", record.key, err)
+                observation = None
+            changed |= self._apply_observation(record, observation, now)
+        return changed
+
+    def _apply_observation(
+        self,
+        record: ClaimRecord,
+        observation: ArrivalObservation | None,
+        now: datetime,
+    ) -> bool:
+        """Record an attempt and, if the arrival is known, upgrade the record."""
+        if observation is None or not observation.has_outcome:
+            self._store.set(
+                replace(record, confirm_attempts=record.confirm_attempts + 1)
+            )
+            return True
+
+        assessment = assess_arrival(
+            record.scheduled_arrival,
+            observation.actual,
+            is_cancelled=observation.is_cancelled,
+            thresholds=self.schemes.for_operator(record.operator).thresholds,
+        )
+        if not assessment.claimable:
+            _LOGGER.info(
+                "Journey %s arrived %s minutes late: below the threshold, dropping it",
+                record.key,
+                assessment.delay_minutes,
+            )
+            self._store.remove(record.key)
+            return True
+
+        self._store.set(
+            replace(
+                record,
+                arrival=observation.actual,
+                delay_minutes=assessment.delay_minutes,
+                tier=assessment.tier,
+                is_cancelled=assessment.is_cancelled,
+                confirmation=Confirmation.CONFIRMED,
+                status=ClaimStatus.ELIGIBLE,
+                last_updated=now.isoformat(),
+                confirm_attempts=record.confirm_attempts + 1,
+            )
+        )
         return True
 
     # --- Maintenance -------------------------------------------------------

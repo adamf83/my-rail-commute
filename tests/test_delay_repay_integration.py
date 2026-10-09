@@ -265,3 +265,46 @@ async def test_invalid_stored_schemes_fall_back_to_defaults(
         )
         assert coordinator.delay_repay.schemes.default.thresholds == (15, 30, 60, 120)
         assert "using defaults" in caplog.text
+
+
+async def test_forecast_is_confirmed_against_the_destination_board(
+    hass, mock_config_entry, mock_api_client, freezer
+):
+    with fake_storage():
+        coordinator = await _setup(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            freezer,
+            [late_service()],
+            **{CONF_DELAY_REPAY_ENABLED: True},
+        )
+        assert coordinator.delay_repay.records()[0].confirmation.value == "estimated"
+
+        # The train reached London Bridge 15 minutes later than forecast
+        mock_api_client.get_arrival_board.return_value = [
+            {
+                "serviceID": "9494208LNDNBDC",
+                "serviceIdUrlSafe": "9494208LNDNBDC_",
+                "sta": "22:53",
+                "eta": "23:25",
+            }
+        ]
+        mock_api_client.get_service_details.return_value = {
+            "crs": "LBG",
+            "sta": "22:53",
+            "ata": "23:25",
+        }
+        freezer.move_to(NOW + timedelta(minutes=41))
+        mock_api_client.get_departure_board.return_value = _board([])
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+        mock_api_client.get_arrival_board.assert_awaited_once_with("RDG", "PAD")
+        mock_api_client.get_service_details.assert_awaited_once_with("9494208LNDNBDC_")
+
+        claim = hass.states.get(ENTITY_CLAIMS).attributes["claims"][0]
+        assert claim["confirmation"] == "confirmed"
+        assert claim["arrival"] == "23:25"
+        assert claim["delay_minutes"] == 32
+        assert claim["tier"] == 30
