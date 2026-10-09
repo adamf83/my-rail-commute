@@ -778,3 +778,37 @@ class TestParseDepartureBoard:
             "replacement bus" in message.lower()
             for message in result["nrcc_messages"]
         )
+
+    @pytest.mark.parametrize("generated_at", ["2026-10-09T23:35:00", None])
+    async def test_parse_departure_board_orders_services_across_midnight(
+        self, api_client, generated_at
+    ):
+        """Services after midnight (00:17) must sort after late-evening ones
+        (23:40), both with and without a board generation time."""
+
+        def svc(std, bus=False):
+            return {
+                "std": std,
+                "etd": "On time",
+                "platform": "1",
+                "operator": "Southern",
+                "serviceID": f"id{std}",
+            }
+
+        data = {
+            "locationName": "London Bridge",
+            "trainServices": [svc("23:31"), svc("23:40"), svc("00:13"), svc("00:17")],
+            "busServices": [svc("00:02")],
+        }
+        if generated_at:
+            data["generatedAt"] = generated_at
+
+        result = api_client._parse_departure_board(data)
+
+        assert [s["scheduled_departure"] for s in result["services"]] == [
+            "23:31",
+            "23:40",
+            "00:02",
+            "00:13",
+            "00:17",
+        ]

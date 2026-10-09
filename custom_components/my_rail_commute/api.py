@@ -616,7 +616,11 @@ class NationalRailAPI:
         # Merge trains and buses into a single chronological timeline (Darwin
         # returns each list already ordered by departure, so this is a stable
         # merge on scheduled departure time).
-        parsed_services.sort(key=self._service_sort_key)
+        # The sort is midnight-aware, so a 00:17 service follows a 23:40 one.
+        reference = self._board_reference_minutes(
+            board.get("generatedAt"), parsed_services
+        )
+        parsed_services.sort(key=lambda s: self._service_sort_key(s, reference))
 
         return {
             "location_name": location_name,
@@ -649,14 +653,49 @@ class NationalRailAPI:
 
         return services_list
 
-    def _service_sort_key(self, service: dict[str, Any]) -> tuple[int, int]:
+    @staticmethod
+    def _board_reference_minutes(
+        generated_at: Any, services: list[dict[str, Any]]
+    ) -> int | None:
+        """Return the minute-of-day the board's timeline starts from.
+
+        Departure times are bare "HH:MM" strings, so ordering across midnight
+        needs an anchor. This is the board's generation time minus the
+        two-hour look-back Darwin allows, or the first service's time when
+        the generation time is unavailable (Darwin lists each of its service
+        lists in departure order).
+
+        Args:
+            generated_at: The board's ``generatedAt`` value (ISO timestamp)
+            services: Parsed services
+
+        Returns:
+            Minute of day (0-1439), or None if nothing is parseable
+        """
+        if isinstance(generated_at, str):
+            match = re.search(r"[T ](\d{2}):(\d{2})", generated_at)
+            if match:
+                return (int(match[1]) * 60 + int(match[2]) - 120) % 1440
+        for service in services:
+            std = service.get("scheduled_departure", "")
+            if isinstance(std, str) and _TIME_FORMAT_RE.match(std):
+                hours, minutes = std.split(":")
+                return int(hours) * 60 + int(minutes)
+        return None
+
+    def _service_sort_key(
+        self, service: dict[str, Any], reference: int | None = None
+    ) -> tuple[int, int]:
         """Sort key placing services in scheduled-departure order.
 
-        Services with an unparseable scheduled departure sort after all
-        valid ones, preserving their relative order (stable sort).
+        Times are measured forward from ``reference`` (wrapping at midnight)
+        so that e.g. 00:17 sorts after 23:40. Services with an unparseable
+        scheduled departure sort after all valid ones, preserving their
+        relative order (stable sort).
 
         Args:
             service: A parsed service dict
+            reference: Minute of day the timeline starts from
 
         Returns:
             Tuple used as the sort key
@@ -664,7 +703,7 @@ class NationalRailAPI:
         std = service.get("scheduled_departure", "")
         if _TIME_FORMAT_RE.match(std):
             hours, minutes = std.split(":")
-            return (0, int(hours) * 60 + int(minutes))
+            return (0, (int(hours) * 60 + int(minutes) - (reference or 0)) % 1440)
         return (1, 0)
 
     def _parse_service(
