@@ -652,6 +652,7 @@ class NationalRailAPI:
 
             # Subsequent calling points and arrival time
             calling_points = []
+            calling_point_details: list[dict[str, Any]] = []
             scheduled_arrival = None
             estimated_arrival = None
             subsequent_points = service.get("subsequentCallingPoints", [])
@@ -675,6 +676,17 @@ class NationalRailAPI:
                     dest_point = filtered[-1]
 
                 calling_points = [cp.get("locationName", "") for cp in filtered]
+                calling_point_details = [
+                    {
+                        "name": cp.get("locationName", ""),
+                        "crs": cp.get("crs", ""),
+                        "scheduled": cp.get("st"),
+                        # Real HH:MM, or text such as "On time" / "Delayed"
+                        "expected": cp.get("et"),
+                        "is_cancelled": cp.get("isCancelled") is True,
+                    }
+                    for cp in filtered
+                ]
                 if dest_point:
                     scheduled_arrival = dest_point.get("st")
                     # "et" is "On time"/"Delayed"/"Cancelled" etc. when not a
@@ -696,6 +708,7 @@ class NationalRailAPI:
                 "operator": operator_name,
                 "service_id": service_id,
                 "calling_points": calling_points,
+                "calling_point_details": calling_point_details,
                 "delay_minutes": delay_minutes,
                 "status": status,
                 "is_cancelled": is_cancelled,

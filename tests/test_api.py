@@ -458,6 +458,43 @@ class TestParseService:
         assert "Cannon Street" not in result["calling_points"]
         assert result["scheduled_arrival"] == "08:45"
 
+    async def test_parse_service_calling_point_details(self, api_client):
+        """Structured stops carry scheduled and expected times, up to the destination."""
+        service_data = {
+            "std": "08:32",
+            "etd": "On time",
+            "serviceID": "service_ecr_lbg",
+            "destination": [{"locationName": "Cannon Street", "crs": "CST"}],
+            "subsequentCallingPoints": [
+                {
+                    "callingPoint": [
+                        {"locationName": "London Bridge", "crs": "LBG", "st": "08:45", "et": "08:50"},
+                        {"locationName": "Cannon Street", "crs": "CST", "st": "08:52", "et": "Cancelled", "isCancelled": True},
+                    ]
+                }
+            ],
+        }
+
+        result = api_client._parse_service(service_data, destination_crs="LBG")
+
+        assert result["calling_point_details"] == [
+            {
+                "name": "London Bridge",
+                "crs": "LBG",
+                "scheduled": "08:45",
+                "expected": "08:50",
+                "is_cancelled": False,
+            }
+        ]
+        full = api_client._parse_service(service_data)
+        assert full["calling_point_details"][1]["is_cancelled"] is True
+        assert full["calling_point_details"][1]["expected"] == "Cancelled"
+
+    async def test_parse_service_without_calling_points_has_no_details(self, api_client):
+        """A service with no calling points yields an empty details list."""
+        result = api_client._parse_service({"std": "08:32", "etd": "On time"})
+        assert result["calling_point_details"] == []
+
     async def test_parse_service_calling_points_unfiltered_without_destination(self, api_client):
         """Test that calling_points shows all stops when no destination_crs given."""
         service_data = {
