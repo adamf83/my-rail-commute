@@ -60,11 +60,15 @@ async def test_claims_sensor_counts_only_frozen_unclaimed_journeys():
         await tracker.async_observe(single_leg([late_service()]), NOW)
         assert sensor.native_value == 0
         assert sensor.extra_state_attributes["pending_count"] == 1
+        (pending,) = sensor.extra_state_attributes["pending_claims"]
+        assert pending["key"] == "2026-10-08|1|9494208WHYTELF"
+        assert pending["status"] == "pending"
 
         await tracker.async_maintain(NOW + timedelta(minutes=40))
         assert sensor.native_value == 1
         attrs = sensor.extra_state_attributes
         assert attrs["pending_count"] == 0
+        assert attrs["pending_claims"] == []
         assert attrs["claims_truncated"] is False
         assert attrs["claim_window_days"] == 28
         assert attrs["oldest_unclaimed_date"] == "2026-10-08"

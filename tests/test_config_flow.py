@@ -23,6 +23,7 @@ from custom_components.my_rail_commute.const import (
     CONF_ADD_LEG,
     CONF_ADD_RETURN_JOURNEY,
     CONF_COMMUTE_NAME,
+    CONF_DELAY_REPAY_ENABLED,
     CONF_DESTINATION,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
@@ -418,7 +419,7 @@ class TestConfigFlow:
         )
         return result
 
-    async def _submit_settings(self, hass, flow_id):
+    async def _submit_settings(self, hass, flow_id, **extra):
         """Helper: submit default settings and return the result."""
         return await hass.config_entries.flow.async_configure(
             flow_id,
@@ -430,8 +431,53 @@ class TestConfigFlow:
                 CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
                 CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
                 CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
+                **extra,
             },
         )
+
+    async def test_settings_step_offers_delay_repay(self, hass: HomeAssistant):
+        """The setup settings form includes the Delay Repay toggle."""
+        result = await self._complete_flow_to_settings(hass, None)
+        assert result["step_id"] == "settings"
+        keys = {str(k) for k in result["data_schema"].schema}
+        assert CONF_DELAY_REPAY_ENABLED in keys
+
+    async def test_delay_repay_enabled_at_setup_is_stored(self, hass: HomeAssistant):
+        """Enabling Delay Repay during setup is saved on the entry."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(
+            hass, result["flow_id"], **{CONF_DELAY_REPAY_ENABLED: True}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_DELAY_REPAY_ENABLED] is True
+
+    async def test_delay_repay_off_by_default_at_setup(self, hass: HomeAssistant):
+        """Delay Repay stays off when not ticked during setup."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(hass, result["flow_id"])
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert CONF_DELAY_REPAY_ENABLED not in result["data"]
+
+    async def test_return_journey_inherits_delay_repay(self, hass: HomeAssistant):
+        """The reverse commute copies the Delay Repay choice."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(
+            hass, result["flow_id"], **{CONF_DELAY_REPAY_ENABLED: True}
+        )
+        with patch.object(
+            hass.config_entries.flow,
+            "async_init",
+            wraps=hass.config_entries.flow.async_init,
+        ) as mock_init:
+            await hass.config_entries.flow.async_configure(
+                result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: True}
+            )
+        assert mock_init.call_args.kwargs["data"][CONF_DELAY_REPAY_ENABLED] is True
 
     async def test_return_journey_step_offered_when_reverse_missing(
         self, hass: HomeAssistant

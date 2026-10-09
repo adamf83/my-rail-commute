@@ -222,6 +222,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._departed_train_grace_period: int | None = None
         self._min_connection_time: int | None = None
         self._only_catchable_services: bool = False
+        self._delay_repay_enabled: bool = False
         self._nearby_stations: list[tuple[float, dict]] | None = None
         self._legs: list[dict[str, Any]] = []
         self._leg_names: list[dict[str, str]] = []
@@ -581,6 +582,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._departed_train_grace_period = user_input.get(
                     CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
                 )
+                self._delay_repay_enabled = bool(
+                    user_input.get(CONF_DELAY_REPAY_ENABLED, False)
+                )
                 if len(self._legs) > 1:
                     self._min_connection_time = user_input.get(
                         CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME
@@ -688,6 +692,12 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         }
 
+        # Delay Repay needs a destination to judge arrival delays against
+        if not self._all_departures:
+            schema_dict[
+                vol.Required(CONF_DELAY_REPAY_ENABLED, default=False)
+            ] = selector.BooleanSelector()
+
         if len(self._legs) > 1:
             schema_dict[
                 vol.Required(
@@ -763,6 +773,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
                     CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
                 }
+                if self._delay_repay_enabled:
+                    reverse_data[CONF_DELAY_REPAY_ENABLED] = True
                 if len(self._legs) > 1:
                     reverse_data[CONF_LEGS] = reversed_legs
                     reverse_data[CONF_MIN_CONNECTION_TIME] = (
@@ -833,6 +845,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
             CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
         }
+        if self._delay_repay_enabled:
+            data[CONF_DELAY_REPAY_ENABLED] = True
         if self._destination:
             data[CONF_DESTINATION] = self._destination
         if len(self._legs) > 1:
