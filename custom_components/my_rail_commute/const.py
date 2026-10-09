@@ -25,6 +25,11 @@ CONF_LEG_DESTINATION: Final = "leg_destination"
 CONF_MIN_CONNECTION_TIME: Final = "min_connection_time"
 CONF_ONLY_CATCHABLE_SERVICES: Final = "only_catchable_services"
 
+# Optional keys for the other Rail Data products used to confirm Delay Repay
+# journeys (the main CONF_API_KEY is the departure board product)
+CONF_ARRIVAL_API_KEY: Final = "arrival_api_key"
+CONF_SERVICE_DETAILS_API_KEY: Final = "service_details_api_key"
+
 # Legacy config keys (for migration)
 CONF_DISRUPTION_SINGLE_DELAY: Final = "disruption_single_delay"
 CONF_DISRUPTION_MULTIPLE_DELAY: Final = "disruption_multiple_delay"
@@ -33,6 +38,14 @@ CONF_DISRUPTION_MULTIPLE_COUNT: Final = "disruption_multiple_count"
 # API Configuration
 API_BASE_URL: Final = (
     "https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120"
+)
+# Arrival boards and service details are separate Rail Data Marketplace
+# products from the departure board, each with its own subscription and key
+ARRIVAL_API_BASE_URL: Final = (
+    "https://api1.raildata.org.uk/1010-live-arrival-board-arr1_1/LDBWS/api/20220120"
+)
+SERVICE_DETAILS_API_BASE_URL: Final = (
+    "https://api1.raildata.org.uk/1010-service-details1_2/LDBWS/api/20220120"
 )
 API_TIMEOUT: Final = 30
 
@@ -217,11 +230,18 @@ DELAY_REPAY_LIVE_GRACE_MINUTES: Final = 10
 DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS: Final = 30
 
 # Confirming a forecast against the actual arrival: the destination board is
-# checked from the expected arrival time until this long afterwards, at most
-# this many times per journey and this many journeys per coordinator update
-DELAY_REPAY_CONFIRM_WINDOW_MINUTES: Final = 30
-DELAY_REPAY_CONFIRM_MAX_ATTEMPTS: Final = 10
+# checked from the expected arrival time until this long afterwards (the
+# arrival board can look back at most two hours), at most this many times per
+# journey and this many journeys per coordinator update. Only a check that
+# reached the board and found no outcome counts as an attempt; API errors do
+# not, so an outage cannot use them up
+DELAY_REPAY_CONFIRM_WINDOW_MINUTES: Final = 120
+DELAY_REPAY_CONFIRM_MAX_ATTEMPTS: Final = 30
 DELAY_REPAY_CONFIRM_MAX_PER_UPDATE: Final = 3
+# Furthest the arrival board can look back from now, and how far ahead of the
+# scheduled arrival a lookup starts
+ARRIVAL_BOARD_MAX_LOOKBACK_MINUTES: Final = 120
+ARRIVAL_BOARD_LEAD_MINUTES: Final = 10
 
 SERVICE_MARK_DELAY_REPAY_CLAIMED: Final = "mark_delay_repay_claimed"
 SERVICE_DISMISS_DELAY_REPAY: Final = "dismiss_delay_repay"

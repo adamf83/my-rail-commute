@@ -32,6 +32,10 @@ You'll need a free API key from the Rail Data Marketplace:
 4. Subscribe to the API (it's free)
 5. Copy your API key
 
+### Delay Repay keys (optional)
+
+To confirm actual arrival times for Delay Repay claims you also need free keys for the **Live Arrival Board** and **Service Details** products on Rail Data Marketplace. They are separate subscriptions from the departure board and are asked for once, when you enable Delay Repay.
+
 ### Station CRS Codes
 
 You'll need the 3-letter CRS (Computer Reservation System) codes for your stations. Find your station codes at [National Rail Enquiries](https://www.nationalrail.co.uk/stations/).

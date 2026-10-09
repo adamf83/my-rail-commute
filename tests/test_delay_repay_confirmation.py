@@ -6,10 +6,14 @@ from datetime import timedelta
 
 import pytest
 
-from custom_components.my_rail_commute.api import NationalRailAPIError
+from custom_components.my_rail_commute.api import (
+    AuthenticationError,
+    NationalRailAPIError,
+)
 from custom_components.my_rail_commute.const import (
     DELAY_REPAY_CONFIRM_MAX_ATTEMPTS,
     DELAY_REPAY_CONFIRM_MAX_PER_UPDATE,
+    DELAY_REPAY_CONFIRM_WINDOW_MINUTES,
 )
 from custom_components.my_rail_commute.delay_repay.models import (
     ClaimStatus,
@@ -119,14 +123,39 @@ async def test_not_arrived_yet_counts_an_attempt_and_stays_an_estimate():
         assert record.delay_minutes == 17
 
 
-async def test_api_errors_are_counted_and_do_not_propagate():
+async def test_api_errors_do_not_use_up_attempts_and_are_retried(caplog):
     with fake_storage():
-        source = FakeSource(NationalRailAPIError("down"))
+        source = FakeSource(
+            NationalRailAPIError("down"),
+            NationalRailAPIError("down"),
+            ArrivalObservation(actual="23:25"),
+        )
         tracker, _ = await _tracker_with(source)
         await tracker.async_observe(single_leg([]), EXPECTED)
+        await tracker.async_observe(single_leg([]), EXPECTED + timedelta(minutes=2))
         (record,) = tracker.records()
-        assert record.confirm_attempts == 1
+        assert record.confirm_attempts == 0
         assert record.confirmation is Confirmation.ESTIMATED
+        # Logged once per journey, not on every poll
+        assert caplog.text.count("Could not confirm") == 1
+
+        # The outage ends and the next poll confirms the journey
+        await tracker.async_observe(single_leg([]), EXPECTED + timedelta(minutes=4))
+        assert tracker.records()[0].confirmation is Confirmation.CONFIRMED
+
+
+async def test_a_rejected_key_stops_confirmation_with_one_warning(caplog):
+    with fake_storage():
+        source = FakeSource(AuthenticationError("rejected"))
+        tracker, _ = await _tracker_with(source)
+        await tracker.async_observe(single_leg([]), EXPECTED)
+        await tracker.async_observe(single_leg([]), EXPECTED + timedelta(minutes=2))
+        await tracker.async_observe(single_leg([]), EXPECTED + timedelta(minutes=4))
+
+        assert len(source.calls) == 1  # not asked again until the entry reloads
+        (record,) = tracker.records()
+        assert record.confirm_attempts == 0
+        assert caplog.text.count("key was rejected") == 1
 
 
 async def test_nothing_is_checked_before_the_expected_arrival():
@@ -137,11 +166,22 @@ async def test_nothing_is_checked_before_the_expected_arrival():
         assert source.calls == []
 
 
+async def test_a_journey_is_still_checked_well_after_the_expected_arrival():
+    with fake_storage():
+        source = FakeSource(ArrivalObservation(actual="23:25"))
+        tracker, _ = await _tracker_with(source)
+        await tracker.async_observe(single_leg([]), EXPECTED + timedelta(minutes=90))
+        assert tracker.records()[0].confirmation is Confirmation.CONFIRMED
+
+
 async def test_nothing_is_checked_after_the_window_closes():
     with fake_storage():
         source = FakeSource(ArrivalObservation(actual="23:25"))
         tracker, _ = await _tracker_with(source)
-        await tracker.async_observe(single_leg([]), EXPECTED + timedelta(minutes=31))
+        await tracker.async_observe(
+            single_leg([]),
+            EXPECTED + timedelta(minutes=DELAY_REPAY_CONFIRM_WINDOW_MINUTES + 1),
+        )
         assert source.calls == []
         assert tracker.records()[0].confirmation is Confirmation.ESTIMATED
 

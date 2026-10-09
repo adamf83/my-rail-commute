@@ -25,6 +25,7 @@ from .const import (
     CONF_ADD_LEG,
     CONF_ADD_RETURN_JOURNEY,
     CONF_ALL_DEPARTURES,
+    CONF_ARRIVAL_API_KEY,
     CONF_COMMUTE_NAME,
     CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     CONF_DELAY_REPAY_ENABLED,
@@ -43,6 +44,7 @@ from .const import (
     CONF_NUM_SERVICES,
     CONF_ONLY_CATCHABLE_SERVICES,
     CONF_ORIGIN,
+    CONF_SERVICE_DETAILS_API_KEY,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
     DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
@@ -74,6 +76,7 @@ from .const import (
 )
 from .coordinator import build_route_id
 from .delay_repay.schemes import build_scheme_set
+from .keys import find_shared_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,6 +128,69 @@ async def validate_api_key(hass: HomeAssistant, api_key: str) -> dict[str, Any]:
     await api.validate_api_key()
 
     return {"title": DEFAULT_NAME}
+
+
+async def validate_arrival_api_key(hass: HomeAssistant, api_key: str) -> bool:
+    """Validate an arrival board API key (a separate Rail Data product).
+
+    Raises:
+        AuthenticationError: If the key is rejected
+        NationalRailAPIError: If the API cannot be reached
+    """
+    session = async_get_clientsession(hass)
+    api = NationalRailAPI(api_key, session, arrival_api_key=api_key)
+    return await api.validate_arrival_api_key()
+
+
+async def validate_service_details_api_key(hass: HomeAssistant, api_key: str) -> bool:
+    """Validate a service details API key (a separate Rail Data product).
+
+    Raises:
+        AuthenticationError: If the key is rejected
+        NationalRailAPIError: If the API cannot be reached
+    """
+    session = async_get_clientsession(hass)
+    api = NationalRailAPI(api_key, session, service_details_api_key=api_key)
+    return await api.validate_service_details_api_key()
+
+
+async def validate_product_keys(
+    hass: HomeAssistant,
+    user_input: dict[str, Any],
+    current: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Validate any newly entered arrival board / service details keys.
+
+    Blank keys are fine (the feature just stays on forecasts) and keys equal
+    to the stored value are not re-checked. Returns errors keyed by field.
+    """
+    current = current or {}
+    errors: dict[str, str] = {}
+    for conf_key, validator, auth_error in (
+        (CONF_ARRIVAL_API_KEY, validate_arrival_api_key, "invalid_arrival_auth"),
+        (
+            CONF_SERVICE_DETAILS_API_KEY,
+            validate_service_details_api_key,
+            "invalid_service_details_auth",
+        ),
+    ):
+        value = (user_input.get(conf_key) or "").strip()
+        if not value or value == current.get(conf_key):
+            continue
+        try:
+            await validator(hass, value)
+        except AuthenticationError:
+            errors[conf_key] = auth_error
+        except NationalRailAPIError:
+            errors[conf_key] = "cannot_connect"
+    return errors
+
+
+def _key_selector() -> selector.TextSelector:
+    """Return a masked text box for an API key."""
+    return selector.TextSelector(
+        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+    )
 
 
 async def validate_stations(
@@ -754,6 +820,11 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             FlowResult for the next step
         """
         errors: dict[str, str] = {}
+        shared_keys = {
+            conf_key: key
+            for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY)
+            if (key := find_shared_key(self.hass, conf_key))
+        }
 
         if user_input is not None:
             try:
@@ -765,6 +836,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError as err:
                 errors["base"] = "invalid_delay_repay_schemes"
                 _LOGGER.error("Invalid Delay Repay schemes: %s", err)
+
+            if not errors:
+                errors.update(await validate_product_keys(self.hass, user_input))
 
             if not errors:
                 self._delay_repay_settings = {
@@ -783,35 +857,45 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         )
                     ),
                 }
+                # Keys are per Rail Data subscription, not per commute: keep
+                # whichever was just entered, else the one already stored
+                for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
+                    key = (user_input.get(conf_key) or "").strip() or shared_keys.get(
+                        conf_key
+                    )
+                    if key:
+                        self._delay_repay_settings[conf_key] = key
                 return await self._async_after_settings()
+
+        schema: dict[Any, Any] = {
+            vol.Optional(
+                CONF_DELAY_REPAY_THRESHOLDS,
+                default=DEFAULT_DELAY_REPAY_THRESHOLDS,
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_DELAY_REPAY_OPERATORS, default=""
+            ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            vol.Required(
+                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                default=DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                    max=MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                    step=1,
+                    unit_of_measurement="days",
+                    mode=selector.NumberSelectorMode.BOX,
+                ),
+            ),
+        }
+        # Only ask for a key that no other commute already holds
+        for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
+            if conf_key not in shared_keys:
+                schema[vol.Optional(conf_key)] = _key_selector()
 
         return self.async_show_form(
             step_id="delay_repay",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_DELAY_REPAY_THRESHOLDS,
-                        default=DEFAULT_DELAY_REPAY_THRESHOLDS,
-                    ): selector.TextSelector(),
-                    vol.Optional(
-                        CONF_DELAY_REPAY_OPERATORS, default=""
-                    ): selector.TextSelector(
-                        selector.TextSelectorConfig(multiline=True)
-                    ),
-                    vol.Required(
-                        CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                        default=DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                            max=MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                            step=1,
-                            unit_of_measurement="days",
-                            mode=selector.NumberSelectorMode.BOX,
-                        ),
-                    ),
-                }
-            ),
+            data_schema=vol.Schema(schema),
             errors=errors,
         )
 
@@ -979,6 +1063,17 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
         # Get current values
         current_data = self.config_entry.data
         options = self.config_entry.options
+        # This commute's own keys, else one entered on another commute (the
+        # keys belong to the Rail Data subscription, not to a route)
+        stored_keys = {
+            conf_key: options.get(conf_key)
+            or current_data.get(conf_key)
+            or find_shared_key(
+                self.hass, conf_key, exclude_entry_id=self.config_entry.entry_id
+            )
+            or ""
+            for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY)
+        }
 
         if user_input is not None:
             # Validate delay thresholds
@@ -1004,8 +1099,25 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                     errors["base"] = "invalid_delay_repay_schemes"
                     _LOGGER.error("Invalid Delay Repay schemes: %s", err)
 
+            # Validate any newly entered arrival board / service details key
+            if not errors and user_input.get(CONF_DELAY_REPAY_ENABLED):
+                errors.update(
+                    await validate_product_keys(
+                        self.hass,
+                        user_input,
+                        {
+                            conf_key: stored_keys[conf_key]
+                            for conf_key in stored_keys
+                            if stored_keys[conf_key]
+                        },
+                    )
+                )
+
             if not errors:
                 data = dict(user_input)
+                for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
+                    if conf_key in data:
+                        data[conf_key] = (data[conf_key] or "").strip()
                 # Update the config entry
                 return self.async_create_entry(title="", data=data)
 
@@ -1156,6 +1268,11 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 mode=selector.NumberSelectorMode.BOX,
             ),
         )
+
+        for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
+            schema_dict[
+                vol.Optional(conf_key, default=stored_keys[conf_key])
+            ] = _key_selector()
 
         if len(current_data.get(CONF_LEGS) or []) > 1:
             schema_dict[

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.my_rail_commute.api import NationalRailAPIError
+from custom_components.my_rail_commute.api import (
+    AuthenticationError,
+    NationalRailAPIError,
+)
 from custom_components.my_rail_commute.delay_repay.confirm import (
     DestinationBoardSource,
+    board_lookup_range,
     details_ids,
     id_prefix,
     match_arrival_service,
@@ -125,8 +130,9 @@ def test_details_ids_prefers_url_safe_and_dedupes():
     assert details_ids({"serviceID": "", "serviceIdUrlSafe": None}) == []
 
 
-def _api(services=None, details=None, details_error=None):
+def _api(services=None, details=None, details_error=None, has_details_key=True):
     api = AsyncMock()
+    api.has_product = MagicMock(return_value=has_details_key)
     api.get_arrival_board.return_value = services if services is not None else []
     if details_error is not None:
         api.get_service_details.side_effect = details_error
@@ -143,7 +149,9 @@ async def test_source_reads_the_actual_arrival():
     observation = await DestinationBoardSource(api).async_fetch(_record())
 
     assert observation == ArrivalObservation(actual="23:05")
-    api.get_arrival_board.assert_awaited_once_with("LBG", "WYT")
+    api.get_arrival_board.assert_awaited_once_with(
+        "LBG", "WYT", time_offset=-10, time_window=45
+    )
     api.get_service_details.assert_awaited_once_with("9494208LNDNBDC_")
 
 
@@ -167,8 +175,53 @@ async def test_source_reports_a_cancellation_from_the_board_without_a_details_ca
     api.get_service_details.assert_not_awaited()
 
 
+async def test_source_uses_an_actual_arrival_on_the_board_entry():
+    api = _api([_arrival(ata="23:25")])
+    observation = await DestinationBoardSource(api).async_fetch(_record())
+    assert observation == ArrivalObservation(actual="23:25")
+    api.get_service_details.assert_not_awaited()
+
+
+async def test_source_without_a_details_key_reports_no_outcome_and_makes_no_call():
+    api = _api([_arrival()], has_details_key=False)
+    observation = await DestinationBoardSource(api).async_fetch(_record())
+    assert observation == ArrivalObservation()
+    api.get_service_details.assert_not_awaited()
+
+
+async def test_source_lets_a_rejected_details_key_propagate():
+    api = _api([_arrival()], details_error=AuthenticationError("rejected"))
+    with pytest.raises(AuthenticationError):
+        await DestinationBoardSource(api).async_fetch(_record())
+    assert api.get_service_details.await_count == 1
+
+
+def test_lookup_range_defaults_without_an_expected_arrival():
+    assert board_lookup_range(_record(), datetime(2026, 10, 8, 23, 0, tzinfo=UTC)) == (
+        -10,
+        45,
+    )
+
+
+def test_lookup_range_looks_back_to_a_late_trains_scheduled_time():
+    # Scheduled 22:53, forecast 17 minutes late (23:10); asked at 23:40
+    record = _record(expected_arrival_at="2026-10-08T23:10:00+00:00", delay_minutes=17)
+    now = datetime(2026, 10, 8, 23, 40, tzinfo=UTC)
+    offset, window = board_lookup_range(record, now)
+    assert offset == -(47 + 10)  # 47 minutes since 22:53, plus the lead
+    assert window >= -offset  # reaches forward to cover the scheduled time
+
+
+def test_lookup_range_is_capped_at_what_the_api_allows():
+    record = _record(expected_arrival_at="2026-10-08T23:10:00+00:00", delay_minutes=17)
+    offset, window = board_lookup_range(record, datetime(2026, 10, 9, 6, 0, tzinfo=UTC))
+    assert offset == -120
+    assert window <= 120
+
+
 async def test_source_tries_the_next_id_when_one_fails():
     api = AsyncMock()
+    api.has_product = MagicMock(return_value=True)
     api.get_arrival_board.return_value = [
         _arrival("9494208LNDNBDC", serviceIdUrlSafe="9494208LNDNBDC_")
     ]

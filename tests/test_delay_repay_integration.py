@@ -5,18 +5,25 @@ from __future__ import annotations
 from datetime import timedelta
 
 from homeassistant import data_entry_flow
+from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+import custom_components.my_rail_commute as integration
 from custom_components.my_rail_commute.const import (
+    CONF_ARRIVAL_API_KEY,
     CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     CONF_DELAY_REPAY_ENABLED,
     CONF_DELAY_REPAY_OPERATORS,
     CONF_DELAY_REPAY_THRESHOLDS,
+    CONF_DESTINATION,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
+    CONF_ORIGIN,
+    CONF_SERVICE_DETAILS_API_KEY,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
     DOMAIN,
@@ -277,7 +284,11 @@ async def test_forecast_is_confirmed_against_the_destination_board(
             mock_api_client,
             freezer,
             [late_service()],
-            **{CONF_DELAY_REPAY_ENABLED: True},
+            **{
+                CONF_DELAY_REPAY_ENABLED: True,
+                CONF_ARRIVAL_API_KEY: "arrival-key",
+                CONF_SERVICE_DETAILS_API_KEY: "details-key",
+            },
         )
         assert coordinator.delay_repay.records()[0].confirmation.value == "estimated"
 
@@ -300,7 +311,8 @@ async def test_forecast_is_confirmed_against_the_destination_board(
         await coordinator.async_refresh()
         await hass.async_block_till_done()
 
-        mock_api_client.get_arrival_board.assert_awaited_once_with("RDG", "PAD")
+        mock_api_client.get_arrival_board.assert_awaited_once()
+        assert mock_api_client.get_arrival_board.await_args.args == ("RDG", "PAD")
         mock_api_client.get_service_details.assert_awaited_once_with("9494208LNDNBDC_")
 
         claim = hass.states.get(ENTITY_CLAIMS).attributes["claims"][0]
@@ -308,3 +320,90 @@ async def test_forecast_is_confirmed_against_the_destination_board(
         assert claim["arrival"] == "23:25"
         assert claim["delay_minutes"] == 32
         assert claim["tier"] == 30
+
+
+async def test_keys_are_passed_to_the_api_client(
+    hass, mock_config_entry, mock_api_client, freezer
+):
+    with fake_storage():
+        await _setup(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            freezer,
+            [],
+            **{
+                CONF_DELAY_REPAY_ENABLED: True,
+                CONF_ARRIVAL_API_KEY: "arrival-key",
+                CONF_SERVICE_DETAILS_API_KEY: "details-key",
+            },
+        )
+        # mock_api_client patched the class that setup calls
+        kwargs = integration.NationalRailAPI.call_args.kwargs
+        assert kwargs["arrival_api_key"] == "arrival-key"
+        assert kwargs["service_details_api_key"] == "details-key"
+
+
+async def test_without_an_arrival_key_confirmation_is_off_and_warns(
+    hass, mock_config_entry, mock_api_client, freezer, caplog
+):
+    with fake_storage():
+        coordinator = await _setup(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            freezer,
+            [late_service()],
+            **{CONF_DELAY_REPAY_ENABLED: True},
+        )
+        assert coordinator.delay_repay.confirmation_source is None
+        assert "no arrival board API key" in caplog.text
+        # Journeys are still tracked, just as estimates
+        assert coordinator.delay_repay.records()[0].confirmation.value == "estimated"
+
+
+async def test_without_a_details_key_the_board_is_still_used_and_it_warns(
+    hass, mock_config_entry, mock_api_client, freezer, caplog
+):
+    with fake_storage():
+        coordinator = await _setup(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            freezer,
+            [],
+            **{
+                CONF_DELAY_REPAY_ENABLED: True,
+                CONF_ARRIVAL_API_KEY: "arrival-key",
+            },
+        )
+        assert coordinator.delay_repay.confirmation_source is not None
+        assert "no service details API key" in caplog.text
+
+
+async def test_keys_entered_on_another_commute_are_reused(
+    hass, mock_config_entry, mock_api_client, freezer
+):
+    other = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_API_KEY: "k", CONF_ORIGIN: "RDG", CONF_DESTINATION: "PAD"},
+        options={
+            CONF_ARRIVAL_API_KEY: "shared-arrival",
+            CONF_SERVICE_DETAILS_API_KEY: "shared-details",
+        },
+        unique_id="RDG_PAD",
+    )
+    other.add_to_hass(hass)
+    with fake_storage():
+        coordinator = await _setup(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            freezer,
+            [],
+            **{CONF_DELAY_REPAY_ENABLED: True},
+        )
+        kwargs = integration.NationalRailAPI.call_args.kwargs
+        assert kwargs["arrival_api_key"] == "shared-arrival"
+        assert kwargs["service_details_api_key"] == "shared-details"
+        assert coordinator.delay_repay.confirmation_source is not None
