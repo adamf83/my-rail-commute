@@ -23,7 +23,10 @@ from custom_components.my_rail_commute.const import (
     CONF_ADD_LEG,
     CONF_ADD_RETURN_JOURNEY,
     CONF_COMMUTE_NAME,
+    CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     CONF_DELAY_REPAY_ENABLED,
+    CONF_DELAY_REPAY_OPERATORS,
+    CONF_DELAY_REPAY_THRESHOLDS,
     CONF_DESTINATION,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
@@ -448,11 +451,50 @@ class TestConfigFlow:
         result = await self._submit_settings(
             hass, result["flow_id"], **{CONF_DELAY_REPAY_ENABLED: True}
         )
+        assert result["step_id"] == "delay_repay"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_DELAY_REPAY_THRESHOLDS: "30,60",
+                CONF_DELAY_REPAY_OPERATORS: "Southern = 15,30",
+                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS: 14,
+            },
+        )
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
         )
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
         assert result["data"][CONF_DELAY_REPAY_ENABLED] is True
+        assert result["data"][CONF_DELAY_REPAY_THRESHOLDS] == "30,60"
+        assert result["data"][CONF_DELAY_REPAY_OPERATORS] == "Southern = 15,30"
+        assert result["data"][CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS] == 14
+
+    async def test_delay_repay_step_rejects_invalid_schemes(
+        self, hass: HomeAssistant
+    ):
+        """Bad scheme text re-shows the Delay Repay step with an error."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(
+            hass, result["flow_id"], **{CONF_DELAY_REPAY_ENABLED: True}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_DELAY_REPAY_THRESHOLDS: "abc",
+                CONF_DELAY_REPAY_OPERATORS: "",
+                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS: 28,
+            },
+        )
+        assert result["step_id"] == "delay_repay"
+        assert result["errors"] == {"base": "invalid_delay_repay_schemes"}
+
+    async def test_delay_repay_step_skipped_when_disabled(
+        self, hass: HomeAssistant
+    ):
+        """Without the toggle the flow goes straight to the return journey."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(hass, result["flow_id"])
+        assert result["step_id"] == "return_journey"
 
     async def test_delay_repay_off_by_default_at_setup(self, hass: HomeAssistant):
         """Delay Repay stays off when not ticked during setup."""
@@ -469,6 +511,14 @@ class TestConfigFlow:
         result = await self._submit_settings(
             hass, result["flow_id"], **{CONF_DELAY_REPAY_ENABLED: True}
         )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_DELAY_REPAY_THRESHOLDS: "30,60",
+                CONF_DELAY_REPAY_OPERATORS: "",
+                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS: 14,
+            },
+        )
         with patch.object(
             hass.config_entries.flow,
             "async_init",
@@ -477,7 +527,10 @@ class TestConfigFlow:
             await hass.config_entries.flow.async_configure(
                 result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: True}
             )
-        assert mock_init.call_args.kwargs["data"][CONF_DELAY_REPAY_ENABLED] is True
+        reverse = mock_init.call_args.kwargs["data"]
+        assert reverse[CONF_DELAY_REPAY_ENABLED] is True
+        assert reverse[CONF_DELAY_REPAY_THRESHOLDS] == "30,60"
+        assert reverse[CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS] == 14
 
     async def test_return_journey_step_offered_when_reverse_missing(
         self, hass: HomeAssistant

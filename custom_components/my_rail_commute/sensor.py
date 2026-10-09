@@ -33,6 +33,7 @@ from .const import (
     ATTR_DELAYED_COUNT_TODAY,
     ATTR_DESTINATION,
     ATTR_DESTINATION_NAME,
+    ATTR_ENTRY_ID,
     ATTR_ESTIMATED_ARRIVAL,
     ATTR_EXPECTED_DEPARTURE,
     ATTR_IS_CANCELLED,
@@ -1353,6 +1354,7 @@ class DelayRepayClaimsSensor(NationalRailCommuteEntity, SensorEntity):
         super().__init__(coordinator, entry)
         self._attr_name = "Delay Repay Claims"
         self._attr_unique_id = f"{entry.entry_id}_delay_repay_claims"
+        self._entry_id = entry.entry_id
         self._attr_icon = "mdi:cash-refund"
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -1376,6 +1378,8 @@ class DelayRepayClaimsSensor(NationalRailCommuteEntity, SensorEntity):
         oldest = unclaimed[-1] if unclaimed else None
         pending = tracker.records((ClaimStatus.PENDING,))
         return {
+            # Needed by cards to call the mark-claimed / dismiss services
+            ATTR_ENTRY_ID: self._entry_id,
             ATTR_CLAIMS: [claim_to_dict(r, tracker) for r in shown],
             ATTR_CLAIMS_TRUNCATED: len(unclaimed) > len(shown),
             ATTR_PENDING_COUNT: len(pending),

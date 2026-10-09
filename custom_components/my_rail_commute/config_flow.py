@@ -223,6 +223,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._min_connection_time: int | None = None
         self._only_catchable_services: bool = False
         self._delay_repay_enabled: bool = False
+        self._delay_repay_settings: dict[str, Any] = {}
         self._nearby_stations: list[tuple[float, dict]] | None = None
         self._legs: list[dict[str, Any]] = []
         self._leg_names: list[dict[str, str]] = []
@@ -598,11 +599,12 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(build_route_id(self._legs))
                 self._abort_if_unique_id_configured()
 
-                # Skip return-journey step when showing all departures
-                if self._all_departures:
-                    return self._create_entry()
+                # Home Assistant forms can't reveal fields conditionally, so the
+                # Delay Repay options get their own step when the toggle is on
+                if self._delay_repay_enabled:
+                    return await self.async_step_delay_repay()
 
-                return await self.async_step_return_journey()
+                return await self._async_after_settings()
 
         # Default commute name
         if self._all_departures:
@@ -732,6 +734,87 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
+    async def _async_after_settings(self) -> FlowResult:
+        """Continue after the settings (and optional Delay Repay) steps."""
+        # Skip return-journey step when showing all departures
+        if self._all_departures:
+            return self._create_entry()
+
+        return await self.async_step_return_journey()
+
+    async def async_step_delay_repay(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure Delay Repay tracking (shown only when it was enabled).
+
+        Args:
+            user_input: User input data
+
+        Returns:
+            FlowResult for the next step
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                build_scheme_set(
+                    user_input.get(CONF_DELAY_REPAY_THRESHOLDS)
+                    or DEFAULT_DELAY_REPAY_THRESHOLDS,
+                    user_input.get(CONF_DELAY_REPAY_OPERATORS) or "",
+                )
+            except ValueError as err:
+                errors["base"] = "invalid_delay_repay_schemes"
+                _LOGGER.error("Invalid Delay Repay schemes: %s", err)
+
+            if not errors:
+                self._delay_repay_settings = {
+                    CONF_DELAY_REPAY_THRESHOLDS: user_input.get(
+                        CONF_DELAY_REPAY_THRESHOLDS
+                    )
+                    or DEFAULT_DELAY_REPAY_THRESHOLDS,
+                    CONF_DELAY_REPAY_OPERATORS: user_input.get(
+                        CONF_DELAY_REPAY_OPERATORS
+                    )
+                    or "",
+                    CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS: int(
+                        user_input.get(
+                            CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                            DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                        )
+                    ),
+                }
+                return await self._async_after_settings()
+
+        return self.async_show_form(
+            step_id="delay_repay",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_DELAY_REPAY_THRESHOLDS,
+                        default=DEFAULT_DELAY_REPAY_THRESHOLDS,
+                    ): selector.TextSelector(),
+                    vol.Optional(
+                        CONF_DELAY_REPAY_OPERATORS, default=""
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(multiline=True)
+                    ),
+                    vol.Required(
+                        CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                        default=DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                            max=MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                            step=1,
+                            unit_of_measurement="days",
+                            mode=selector.NumberSelectorMode.BOX,
+                        ),
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
     async def async_step_return_journey(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -775,6 +858,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
                 if self._delay_repay_enabled:
                     reverse_data[CONF_DELAY_REPAY_ENABLED] = True
+                    reverse_data.update(self._delay_repay_settings)
                 if len(self._legs) > 1:
                     reverse_data[CONF_LEGS] = reversed_legs
                     reverse_data[CONF_MIN_CONNECTION_TIME] = (
@@ -847,6 +931,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         if self._delay_repay_enabled:
             data[CONF_DELAY_REPAY_ENABLED] = True
+            data.update(self._delay_repay_settings)
         if self._destination:
             data[CONF_DESTINATION] = self._destination
         if len(self._legs) > 1:

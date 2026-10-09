@@ -138,7 +138,10 @@ class DelayRepayTracker:
             delay_minutes=assessment.delay_minutes,
             tier=assessment.tier,
             is_cancelled=assessment.is_cancelled,
-            confirmation=Confirmation.ESTIMATED,
+            # A cancellation is reported as fact, not forecast
+            confirmation=(
+                Confirmation.CONFIRMED if assessment.is_cancelled else Confirmation.ESTIMATED
+            ),
             status=ClaimStatus.PENDING,
             live_until=live_until.isoformat(),
             first_seen=existing.first_seen if existing else now.isoformat(),
