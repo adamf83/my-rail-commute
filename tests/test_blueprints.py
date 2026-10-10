@@ -166,8 +166,9 @@ async def test_status_change_alerts_and_recovery(hass, notify_calls) -> None:
     await hass.async_block_till_done()
     assert len(notify_calls) == 1
     assert notify_calls[0].data["title"] == "Morning Commute status: Major Delays"
-    assert "Morning Commute (Whyteleafe to London Bridge)" in (
-        notify_calls[0].data["message"]
+    assert (
+        "Morning Commute (Whyteleafe to London Bridge)"
+        in (notify_calls[0].data["message"])
     )
     assert "Worst delay: 12 min" in notify_calls[0].data["message"]
 
@@ -448,7 +449,10 @@ async def test_delay_repay_reminder(hass, freezer, notify_calls) -> None:
     )
     # Following Sunday at 18:00 is a Sunday, so it fires
     assert len(notify_calls) == 1
-    assert notify_calls[0].data["title"] == "Your commute: 3 unclaimed Delay Repay journeys"
+    assert (
+        notify_calls[0].data["title"]
+        == "Your commute: 3 unclaimed Delay Repay journeys"
+    )
     assert "Claim it by 2026-10-30" in notify_calls[0].data["message"]
 
 
