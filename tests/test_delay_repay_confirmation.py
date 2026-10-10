@@ -271,3 +271,23 @@ async def test_operator_thresholds_apply_to_the_actual_delay():
         # Forecast 32 minutes (tier 30); actual 27 minutes is under Southern's 30
         await tracker.async_observe(single_leg([]), NOW + timedelta(minutes=55))
         assert tracker.records() == []
+
+
+async def test_confirmation_updates_the_destination_calling_point():
+    service = late_service()
+    service["calling_point_details"] = [
+        {"name": "East Croydon", "crs": "ECR", "scheduled": "23:00",
+         "expected": "23:02", "is_cancelled": False},
+        {"name": "London Bridge", "crs": "LBG", "scheduled": "22:55",
+         "expected": "23:10", "is_cancelled": False},
+    ]
+    with fake_storage():
+        source = FakeSource(ArrivalObservation(actual="23:25"))
+        tracker, _ = await _tracker_with(source, services=[service])
+        await tracker.async_observe(single_leg([]), EXPECTED)
+
+        (record,) = tracker.records()
+        ecr, lbg = record.details["calling_points"]
+        assert ecr["expected"] == "23:02"  # other stops are left alone
+        assert lbg["expected"] == "23:25"
+        assert lbg["scheduled"] == "22:55"
