@@ -94,9 +94,11 @@ actions:
       departure: "{{ attrs.get('departure_time') }}"
       platform: "{{ attrs.get('platform') or 'TBA' }}"
       previous: "{{ attrs.get('previous_platform') or '' }}"
-      title: Platform change
+      commute: >-
+        {{ device_attr(trigger.entity_id, 'name_by_user') or device_attr(trigger.entity_id, 'name') or 'Your commute' }}
+      title: "{{ commute }}: platform change"
       message: >-
-        The {{ departure }} train
+        On {{ commute }}, the {{ departure }} train
         {% if previous not in ['', 'TBA'] %}has moved from platform {{ previous }} to platform {{ platform }}.
         {% else %}will now leave from platform {{ platform }}.{% endif %}
   - alias: Send the notification

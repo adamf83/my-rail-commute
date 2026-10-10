@@ -96,8 +96,10 @@ actions:
       count: "{{ states(claims_sensor) | int(0) }}"
       oldest: "{{ state_attr(claims_sensor, 'oldest_unclaimed_date') }}"
       deadline: "{{ state_attr(claims_sensor, 'oldest_claim_deadline') }}"
+      commute: >-
+        {{ device_attr(claims_sensor, 'name_by_user') or device_attr(claims_sensor, 'name') or 'Your commute' }}
       title: >-
-        {{ count }} unclaimed Delay Repay {{ 'journey' if count | int == 1 else 'journeys' }}
+        {{ commute }}: {{ count }} unclaimed Delay Repay {{ 'journey' if count | int == 1 else 'journeys' }}
       message: >-
         {% if oldest %}The oldest is from {{ oldest }}.{% endif %}
         {% if deadline %}Claim it by {{ deadline }}.{% endif %}

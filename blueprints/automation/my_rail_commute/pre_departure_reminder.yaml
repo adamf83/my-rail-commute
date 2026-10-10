@@ -113,7 +113,9 @@ actions:
       delay: "{{ state_attr(next_train_sensor, 'delay_minutes') | int(0) }}"
       destination: >-
         {{ (state_attr(next_train_sensor, 'calling_points') or []) | last | default('') }}
-      title: Train departing soon
+      commute: >-
+        {{ device_attr(next_train_sensor, 'name_by_user') or device_attr(next_train_sensor, 'name') or 'Your commute' }}
+      title: "{{ commute }}: train departing soon"
       message: >-
         Your {{ departure }} train{% if destination %} to {{ destination }}{% endif %}
         leaves from platform {{ platform }}.
