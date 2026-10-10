@@ -10,10 +10,9 @@ blueprint:
     whole-journey status sensor rather than a `leg` sensor.
 
 
-    The notification action receives two variables, `title` and `message`. The
-    default action shows a Home Assistant notification; replace it with your
-    own notify action (for example `notify.mobile_app_your_phone`) using
-    `{{ title }}` and `{{ message }}` as the content.
+    To get phone notifications, set **Notification service** to your notify
+    service (for example `notify.mobile_app_your_phone`). The title and message
+    are filled in for you. Until then it shows a Home Assistant notification.
   domain: automation
   author: adamf83
   homeassistant:
@@ -65,16 +64,22 @@ blueprint:
             - fri
             - sat
             - sun
-    notify_action:
-      name: Notification action
+    notify_service:
+      name: Notification service
       description: >-
-        Runs when an alert is due. The variables `title` and `message` are
-        available to your templates.
-      default:
-        - action: persistent_notification.create
-          data:
-            title: "{{ title }}"
-            message: "{{ message }}"
+        The notify service to send to, for example
+        `notify.mobile_app_your_phone`. Leave as is to show a Home Assistant
+        notification instead. Clear it to send nothing.
+      default: persistent_notification.create
+      selector:
+        text:
+    notify_action:
+      name: Additional actions (optional)
+      description: >-
+        Advanced. Extra actions to run when an alert is sent, for example a
+        speaker announcement. The variables `title` and `message` are available
+        to your templates.
+      default: []
       selector:
         action:
 
@@ -82,6 +87,7 @@ mode: queued
 max_exceeded: silent
 
 variables:
+  notify_service: !input notify_service
   status_sensor: !input status_sensor
   alert_statuses: !input alert_statuses
   notify_recovery: !input notify_recovery
@@ -120,16 +126,27 @@ actions:
         {% set o = state_attr(status_sensor, 'origin_name') %}
         {% set d = state_attr(status_sensor, 'destination_name') %}
         {% if o and d %}{{ o }} to {{ d }}{% endif %}
+      total: "{{ state_attr(status_sensor, 'total_trains') | int(0) }}"
+      on_time: "{{ state_attr(status_sensor, 'on_time_count') | int(0) }}"
       title: >-
         {% if trigger.id == 'recovered' %}{{ commute }} back to normal{% else %}{{ commute }} status: {{ status }}{% endif %}
       message: >-
         {% if trigger.id == 'recovered' %}
-        {{ commute }}{% if route %} ({{ route }}){% endif %} is running normally again.
+        {% if total | int > 0 %}All {{ total }} trains are running normally again.{% else %}Services are running normally again.{% endif %}
         {% else %}
-        {{ commute }}{% if route %} ({{ route }}){% endif %}: {{ status }}.
-        {% if cancelled | int > 0 %}{{ cancelled }} cancelled. {% endif %}
-        {% if delayed | int > 0 %}{{ delayed }} delayed. {% endif %}
-        {% if max_delay | int > 0 %}Worst delay: {{ max_delay }} min.{% endif %}
+        {% set parts = [] %}
+        {% if cancelled | int > 0 %}{% set parts = parts + [cancelled ~ ' cancelled'] %}{% endif %}
+        {% if delayed | int > 0 %}{% set parts = parts + [delayed ~ ' delayed'] %}{% endif %}
+        {% if max_delay | int > 0 %}{% set parts = parts + ['worst delay ' ~ max_delay ~ ' min'] %}{% endif %}
+        {% if total | int > 0 %}{% set parts = parts + [on_time ~ ' of ' ~ total ~ ' trains on time'] %}{% endif %}
+        {% if route and route != commute %}{{ route }}: {% endif %}{{ (parts | join(', ') | capitalize ~ '.') if parts else 'Status is now ' ~ status ~ '.' }}
         {% endif %}
   - alias: Send the notification
+    if: "{{ notify_service | trim != '' }}"
+    then:
+      - action: "{{ notify_service }}"
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+  - alias: Run additional actions
     sequence: !input notify_action

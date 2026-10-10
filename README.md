@@ -375,7 +375,7 @@ Ready-made [automation blueprints](https://www.home-assistant.io/docs/automation
 
 **To use one:** click its **Import blueprint** badge (or go to **Settings** → **Automations & Scenes** → **Blueprints** → **Import Blueprint** and paste the file's GitHub URL), then **Create Automation** from it and choose your commute's sensor.
 
-- **Notifications:** every blueprint has a *Notification action* input. The default shows a Home Assistant notification so it works immediately; replace it with your own action (for example `notify.mobile_app_your_phone`) and use `{{ title }}` and `{{ message }}` as the content.
+- **Notifications:** every blueprint sends a ready-made title and message (naming your commute). Set the *Notification service* input to your notify service (for example `notify.mobile_app_your_phone`) and you're done; until then it shows a Home Assistant notification. *Additional actions* is optional for anything extra, such as a speaker announcement (`title` and `message` are available there).
 - **Days of the week:** each blueprint lets you restrict which days it runs. The time-based ones default to Monday to Friday.
 - **Requires Home Assistant 2024.10 or newer** (the integration itself still supports 2024.1). Re-import a blueprint to pick up improvements.
 - The Delay Repay blueprints need Delay Repay tracking enabled for the commute, and the connection alert only applies to [multi-leg journeys](#multi-leg-journeys).
