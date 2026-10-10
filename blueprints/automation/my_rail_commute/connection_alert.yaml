@@ -93,11 +93,13 @@ actions:
       status: "{{ trigger.to_state.state }}"
       station: "{{ attrs.get('station_name') or attrs.get('station') or 'the interchange' }}"
       summary: "{{ attrs.get('connecting_summary') or '' }}"
-      title: "{{ status }} at {{ station }}"
+      commute: >-
+        {{ device_attr(trigger.entity_id, 'name_by_user') or device_attr(trigger.entity_id, 'name') or 'Your commute' }}
+      title: "{{ commute }}: {{ status }} at {{ station }}"
       message: >-
-        {% if status == 'Missed Connection' %}You are not expected to make your connection at {{ station }}.
-        {% elif status == 'Delayed Connection' %}Your connection at {{ station }} is delayed.
-        {% else %}Your connection at {{ station }} is tight.{% endif %}
+        {% if status == 'Missed Connection' %}On {{ commute }}, you are not expected to make your connection at {{ station }}.
+        {% elif status == 'Delayed Connection' %}On {{ commute }}, your connection at {{ station }} is delayed.
+        {% else %}On {{ commute }}, your connection at {{ station }} is tight.{% endif %}
         {{ summary }}
   - alias: Send the notification
     sequence: !input notify_action

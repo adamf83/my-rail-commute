@@ -10,10 +10,12 @@ from zoneinfo import ZoneInfo
 from homeassistant.components.automation.config import AUTOMATION_BLUEPRINT_SCHEMA
 from homeassistant.components.blueprint import models
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util.yaml import load_yaml_dict
 import pytest
 from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
     async_fire_time_changed,
     async_mock_service,
 )
@@ -93,6 +95,26 @@ async def notify_calls(hass: HomeAssistant):
     return async_mock_service(hass, "test", "notify")
 
 
+def _attach_device(hass: HomeAssistant, entity_id: str, device_name: str) -> None:
+    """Register ``entity_id`` against a device, like the integration's entities."""
+    entry = MockConfigEntry(domain="my_rail_commute")
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("my_rail_commute", entry.entry_id)},
+        name=device_name,
+    )
+    domain, object_id = entity_id.split(".")
+    er.async_get(hass).async_get_or_create(
+        domain,
+        "my_rail_commute",
+        entity_id,
+        suggested_object_id=object_id,
+        config_entry=entry,
+        device_id=device.id,
+    )
+
+
 async def _setup(hass: HomeAssistant, name: str, inputs: dict) -> None:
     assert await async_setup_component(
         hass,
@@ -122,6 +144,7 @@ async def _tick(hass: HomeAssistant, freezer, when: datetime) -> None:
 async def test_status_change_alerts_and_recovery(hass, notify_calls) -> None:
     """Status worsening alerts; recovery only when asked."""
     sensor = "sensor.morning_status"
+    _attach_device(hass, sensor, "Morning Commute")
     hass.states.async_set(sensor, "Normal")
     await _setup(
         hass,
@@ -132,17 +155,27 @@ async def test_status_change_alerts_and_recovery(hass, notify_calls) -> None:
     hass.states.async_set(
         sensor,
         "Major Delays",
-        {"max_delay_minutes": 12, "major_delays_count": 1, "cancelled_count": 0},
+        {
+            "max_delay_minutes": 12,
+            "major_delays_count": 1,
+            "cancelled_count": 0,
+            "origin_name": "Whyteleafe",
+            "destination_name": "London Bridge",
+        },
     )
     await hass.async_block_till_done()
     assert len(notify_calls) == 1
-    assert notify_calls[0].data["title"] == "Commute status: Major Delays"
+    assert notify_calls[0].data["title"] == "Morning Commute status: Major Delays"
+    assert (
+        "Morning Commute (Whyteleafe to London Bridge)"
+        in (notify_calls[0].data["message"])
+    )
     assert "Worst delay: 12 min" in notify_calls[0].data["message"]
 
     hass.states.async_set(sensor, "Normal")
     await hass.async_block_till_done()
     assert len(notify_calls) == 2
-    assert notify_calls[1].data["title"] == "Commute back to normal"
+    assert notify_calls[1].data["title"] == "Morning Commute back to normal"
 
 
 async def test_status_change_ignores_unavailable_and_unselected(
@@ -168,6 +201,7 @@ async def test_status_change_ignores_unavailable_and_unselected(
 async def test_disruption_alert(hass, notify_calls) -> None:
     """Disruption alerts include the reasons; clearing is opt-in."""
     sensor = "binary_sensor.morning_has_disruption"
+    _attach_device(hass, sensor, "Morning Commute")
     hass.states.async_set(sensor, "off")
     await _setup(
         hass, "disruption_alert", {"disruption_sensor": sensor, "notify_clear": True}
@@ -183,13 +217,13 @@ async def test_disruption_alert(hass, notify_calls) -> None:
         },
     )
     await hass.async_block_till_done()
-    assert notify_calls[0].data["title"] == "Commute disruption: Critical"
+    assert notify_calls[0].data["title"] == "Morning Commute disruption: Critical"
     assert "Signalling problem. Late running train." in notify_calls[0].data["message"]
     assert "1 cancelled" in notify_calls[0].data["message"]
 
     hass.states.async_set(sensor, "off")
     await hass.async_block_till_done()
-    assert notify_calls[1].data["title"] == "Commute back to normal"
+    assert notify_calls[1].data["title"] == "Morning Commute back to normal"
 
 
 async def test_disruption_clear_off_by_default(hass, notify_calls) -> None:
@@ -323,7 +357,7 @@ async def test_connection_alert(hass, notify_calls, status, expected) -> None:
     )
     await hass.async_block_till_done()
     assert len(notify_calls) == 1
-    assert notify_calls[0].data["title"] == f"{status} at Reading"
+    assert notify_calls[0].data["title"] == f"Your commute: {status} at Reading"
     assert expected in notify_calls[0].data["message"]
     assert "Catching the 08:45 to Oxford" in notify_calls[0].data["message"]
 
@@ -415,7 +449,10 @@ async def test_delay_repay_reminder(hass, freezer, notify_calls) -> None:
     )
     # Following Sunday at 18:00 is a Sunday, so it fires
     assert len(notify_calls) == 1
-    assert notify_calls[0].data["title"] == "3 unclaimed Delay Repay journeys"
+    assert (
+        notify_calls[0].data["title"]
+        == "Your commute: 3 unclaimed Delay Repay journeys"
+    )
     assert "Claim it by 2026-10-30" in notify_calls[0].data["message"]
 
 

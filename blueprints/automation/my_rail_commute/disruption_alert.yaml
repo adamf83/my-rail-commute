@@ -93,12 +93,15 @@ actions:
       max_delay: "{{ state_attr(disruption_sensor, 'max_delay_minutes') | int(0) }}"
       cancelled: "{{ state_attr(disruption_sensor, 'cancelled_count') | int(0) }}"
       reasons: "{{ state_attr(disruption_sensor, 'disruption_reasons') or [] }}"
+      commute: >-
+        {{ device_attr(disruption_sensor, 'name_by_user') or device_attr(disruption_sensor, 'name') or 'Your commute' }}
       title: >-
-        {% if trigger.id == 'clear' %}Commute back to normal{% else %}Commute disruption: {{ status }}{% endif %}
+        {% if trigger.id == 'clear' %}{{ commute }} back to normal{% else %}{{ commute }} disruption: {{ status }}{% endif %}
       message: >-
         {% if trigger.id == 'clear' %}
-        Services on your commute are running normally again.
+        Services on {{ commute }} are running normally again.
         {% else %}
+        Disruption on {{ commute }}.
         {% if reasons | length > 0 %}{{ reasons | join('. ') }}.{% endif %}
         {% if cancelled | int > 0 %}{{ cancelled }} cancelled.{% endif %}
         {% if max_delay | int > 0 %}Worst delay: {{ max_delay }} min.{% endif %}

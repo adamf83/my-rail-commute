@@ -80,7 +80,9 @@ actions:
   - variables:
       latest: "{{ state_attr(eligible_sensor, 'latest') or {} }}"
       journeys: "{{ state_attr(eligible_sensor, 'journeys_today') | int(1) }}"
-      title: Possible Delay Repay claim
+      commute: >-
+        {{ device_attr(eligible_sensor, 'name_by_user') or device_attr(eligible_sensor, 'name') or 'Your commute' }}
+      title: "{{ commute }}: possible Delay Repay claim"
       message: >-
         {% if latest.get('is_cancelled') %}Your {{ latest.get('scheduled_departure') }} train was cancelled.
         {% elif latest.get('delay_minutes') %}Your {{ latest.get('scheduled_departure') }} train is {{ latest.get('delay_minutes') }} min late.

@@ -140,7 +140,9 @@ actions:
       platform: >-
         {{ state_attr(next_train_sensor, 'platform') or 'to be announced' }}
       delay: "{{ state_attr(next_train_sensor, 'delay_minutes') | int(0) }}"
-      title: Time to leave
+      commute: >-
+        {{ device_attr(next_train_sensor, 'name_by_user') or device_attr(next_train_sensor, 'name') or 'Your commute' }}
+      title: "{{ commute }}: time to leave"
       message: >-
         {% if delay | int > 0 %}
         Your train is {{ delay }} min late and now leaves at {{ departure }}

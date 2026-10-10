@@ -114,12 +114,19 @@ actions:
       delayed: >-
         {{ (state_attr(status_sensor, 'minor_delays_count') | int(0))
            + (state_attr(status_sensor, 'major_delays_count') | int(0)) }}
+      commute: >-
+        {{ device_attr(status_sensor, 'name_by_user') or device_attr(status_sensor, 'name') or 'Your commute' }}
+      route: >-
+        {% set o = state_attr(status_sensor, 'origin_name') %}
+        {% set d = state_attr(status_sensor, 'destination_name') %}
+        {% if o and d %}{{ o }} to {{ d }}{% endif %}
       title: >-
-        {% if trigger.id == 'recovered' %}Commute back to normal{% else %}Commute status: {{ status }}{% endif %}
+        {% if trigger.id == 'recovered' %}{{ commute }} back to normal{% else %}{{ commute }} status: {{ status }}{% endif %}
       message: >-
         {% if trigger.id == 'recovered' %}
-        Your commute is running normally again.
+        {{ commute }}{% if route %} ({{ route }}){% endif %} is running normally again.
         {% else %}
+        {{ commute }}{% if route %} ({{ route }}){% endif %}: {{ status }}.
         {% if cancelled | int > 0 %}{{ cancelled }} cancelled. {% endif %}
         {% if delayed | int > 0 %}{{ delayed }} delayed. {% endif %}
         {% if max_delay | int > 0 %}Worst delay: {{ max_delay }} min.{% endif %}
