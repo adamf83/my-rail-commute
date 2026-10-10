@@ -2,6 +2,18 @@
 
 This file helps AI agents understand how to work effectively in this repository.
 
+## Working Agreements
+
+Unless the user asks otherwise:
+
+1. **Answer questions from the code.** If the user asks a question, always refer to the code (read the relevant files) instead of guessing or answering from memory.
+2. **Code changes go through a PR, end to end.** For any code change:
+   1. Create a branch and open a pull request.
+   2. Watch the CI checks, polling **every minute**.
+   3. If all checks pass, merge the PR.
+   4. If any check fails, diagnose the failure, push a fix, and watch CI again. Repeat until CI is green.
+   5. Report back to the user once the PR is merged.
+
 ## Project Overview
 
 **My Rail Commute** is a Home Assistant custom integration that monitors UK National Rail commutes in real-time. It fetches live train data from the National Rail Darwin API and exposes sensor entities to Home Assistant.
