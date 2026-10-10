@@ -1,0 +1,103 @@
+blueprint:
+  name: My Rail Commute - Connection alert (multi-leg journeys)
+  description: >-
+    For multi-leg journeys: get notified when a change between trains becomes
+    tight, delayed or missed, including which train you would now catch.
+
+
+    Pick the **Connection N Status** sensor(s) of your journey (for example
+    `sensor.work_commute_connection1_status`). These sensors only exist for
+    commutes configured with one or more connecting legs.
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/connection_alert.yaml
+  input:
+    connection_sensors:
+      name: Connection status sensors
+      description: The "Connection N Status" sensor(s) of your multi-leg journey.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: my_rail_commute
+              domain: sensor
+    alert_statuses:
+      name: Statuses to alert on
+      description: Notify when a connection changes to any of these.
+      default:
+        - Tight Connection
+        - Delayed Connection
+        - Missed Connection
+      selector:
+        select:
+          multiple: true
+          options:
+            - Tight Connection
+            - Delayed Connection
+            - Missed Connection
+    active_days:
+      name: Days of the week
+      description: Only notify on these days.
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when an alert is due. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: queued
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input connection_sensors
+    to: !input alert_statuses
+
+conditions:
+  - condition: time
+    weekday: !input active_days
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unavailable', 'unknown'] }}
+
+actions:
+  - variables:
+      attrs: "{{ trigger.to_state.attributes }}"
+      status: "{{ trigger.to_state.state }}"
+      station: "{{ attrs.get('station_name') or attrs.get('station') or 'the interchange' }}"
+      summary: "{{ attrs.get('connecting_summary') or '' }}"
+      title: "{{ status }} at {{ station }}"
+      message: >-
+        {% if status == 'Missed Connection' %}You are not expected to make your connection at {{ station }}.
+        {% elif status == 'Delayed Connection' %}Your connection at {{ station }} is delayed.
+        {% else %}Your connection at {{ station }} is tight.{% endif %}
+        {{ summary }}
+  - alias: Send the notification
+    sequence: !input notify_action

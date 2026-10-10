@@ -358,6 +358,31 @@ The integration automatically adjusts update frequency based on time of day:
 
 This smart polling reduces API usage while ensuring timely updates when you need them most.
 
+## Automation Blueprints
+
+Ready-made [automation blueprints](https://www.home-assistant.io/docs/automation/using_blueprints/) cover the common patterns below, so you can set them up from the UI without writing YAML or templates. Each one has a dropdown that only lists this integration's sensors.
+
+| Blueprint | What it does | Pick this sensor | Import |
+|---|---|---|---|
+| [Status change alert](blueprints/automation/my_rail_commute/commute_status_change.yaml) | Notifies when the commute status worsens (and optionally recovers). | Commute **Status** sensor | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Fcommute_status_change.yaml) |
+| [Pre-departure reminder](blueprints/automation/my_rail_commute/pre_departure_reminder.yaml) | Reminds you N minutes before your next train leaves, following delays; skips cancelled trains. | **Next Train** sensor | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Fpre_departure_reminder.yaml) |
+| [Time to leave](blueprints/automation/my_rail_commute/time_to_leave.yaml) | Tells you when to leave home: departure minus travel time minus a buffer. Optional "only when home" check. | **Next Train** sensor | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Ftime_to_leave.yaml) |
+| [Disruption alert](blueprints/automation/my_rail_commute/disruption_alert.yaml) | Notifies with the reasons when disruption starts (and optionally when it clears). | **Has Disruption** binary sensor | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Fdisruption_alert.yaml) |
+| [Platform change alert](blueprints/automation/my_rail_commute/platform_change_alert.yaml) | Notifies when the platform of an upcoming train changes. | **Next Train** / **Train N** sensors | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Fplatform_change_alert.yaml) |
+| [Connection alert](blueprints/automation/my_rail_commute/connection_alert.yaml) | Multi-leg journeys: warns about tight, delayed or missed connections and the train you would now catch. | **Connection N Status** sensors | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Fconnection_alert.yaml) |
+| [Delay Repay alert](blueprints/automation/my_rail_commute/delay_repay_alert.yaml) | Same-day alert when a journey may qualify for Delay Repay, with deadline and claim link. | **Delay Repay Eligible** binary sensor | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Fdelay_repay_alert.yaml) |
+| [Delay Repay claims reminder](blueprints/automation/my_rail_commute/delay_repay_reminder.yaml) | Weekly reminder of unclaimed Delay Repay journeys and the oldest deadline. | **Delay Repay Claims** sensor | [![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fadamf83%2Fmy-rail-commute%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fmy_rail_commute%2Fdelay_repay_reminder.yaml) |
+
+**To use one:** click its **Import blueprint** badge (or go to **Settings** → **Automations & Scenes** → **Blueprints** → **Import Blueprint** and paste the file's GitHub URL), then **Create Automation** from it and choose your commute's sensor.
+
+- **Notifications:** every blueprint has a *Notification action* input. The default shows a Home Assistant notification so it works immediately; replace it with your own action (for example `notify.mobile_app_your_phone`) and use `{{ title }}` and `{{ message }}` as the content.
+- **Days of the week:** each blueprint lets you restrict which days it runs. The time-based ones default to Monday to Friday.
+- **Requires Home Assistant 2024.10 or newer** (the integration itself still supports 2024.1). Re-import a blueprint to pick up improvements.
+- The Delay Repay blueprints need Delay Repay tracking enabled for the commute, and the connection alert only applies to [multi-leg journeys](#multi-leg-journeys).
+- For multi-leg journeys, point the status, disruption and next-train blueprints at the whole-journey sensors, or at a `leg` sensor to watch one leg.
+
+The examples below remain useful if you want to write an automation by hand.
+
 ## Automation Examples
 
 ### Simple Status Change Alert (NEW!)

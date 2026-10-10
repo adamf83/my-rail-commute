@@ -1,0 +1,105 @@
+blueprint:
+  name: My Rail Commute - Delay Repay claims reminder
+  description: >-
+    Get a regular reminder when you have unclaimed Delay Repay journeys,
+    including how many and the deadline of the oldest one, so claims are not
+    missed.
+
+
+    Requires Delay Repay tracking to be enabled for the commute (Configure >
+    Track Delay Repay claims). Pick the **Delay Repay Claims** sensor (for
+    example `sensor.morning_commute_delay_repay_claims`). After claiming, mark
+    journeys as claimed with the `my_rail_commute.mark_delay_repay_claimed`
+    action so they stop being counted.
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/delay_repay_reminder.yaml
+  input:
+    claims_sensor:
+      name: Delay Repay claims sensor
+      description: The "Delay Repay Claims" sensor created by My Rail Commute.
+      selector:
+        entity:
+          filter:
+            - integration: my_rail_commute
+              domain: sensor
+    reminder_time:
+      name: Reminder time
+      default: "18:00:00"
+      selector:
+        time:
+    reminder_days:
+      name: Days of the week
+      description: Send the reminder on these days.
+      default: [sun]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    min_claims:
+      name: Minimum unclaimed journeys
+      description: Only remind when at least this many journeys are unclaimed.
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when an alert is due. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: single
+max_exceeded: silent
+
+variables:
+  claims_sensor: !input claims_sensor
+  min_claims: !input min_claims
+
+triggers:
+  - trigger: time
+    at: !input reminder_time
+
+conditions:
+  - condition: time
+    weekday: !input reminder_days
+  - condition: template
+    value_template: >-
+      {{ states(claims_sensor) | int(0) >= (min_claims | int(1)) }}
+
+actions:
+  - variables:
+      count: "{{ states(claims_sensor) | int(0) }}"
+      oldest: "{{ state_attr(claims_sensor, 'oldest_unclaimed_date') }}"
+      deadline: "{{ state_attr(claims_sensor, 'oldest_claim_deadline') }}"
+      title: >-
+        {{ count }} unclaimed Delay Repay {{ 'journey' if count | int == 1 else 'journeys' }}
+      message: >-
+        {% if oldest %}The oldest is from {{ oldest }}.{% endif %}
+        {% if deadline %}Claim it by {{ deadline }}.{% endif %}
+  - alias: Send the notification
+    sequence: !input notify_action

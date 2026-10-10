@@ -1,0 +1,122 @@
+blueprint:
+  name: My Rail Commute - Pre-departure reminder
+  description: >-
+    Get a reminder a set number of minutes before your next train departs.
+    The reminder follows the *expected* departure time, so a delayed train
+    reminds you later and a cancelled train can be skipped.
+
+
+    Pick the **Next Train** sensor of your commute (for example
+    `sensor.morning_commute_next_train`).
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/pre_departure_reminder.yaml
+  input:
+    next_train_sensor:
+      name: Next train sensor
+      description: The "Next Train" sensor created by My Rail Commute.
+      selector:
+        entity:
+          filter:
+            - integration: my_rail_commute
+              domain: sensor
+    minutes_before:
+      name: Minutes before departure
+      description: Send the reminder when the train is this many minutes away.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 120
+          unit_of_measurement: min
+          mode: box
+    active_days:
+      name: Days of the week
+      description: Only remind on these days.
+      default: [mon, tue, wed, thu, fri]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    skip_cancelled:
+      name: Skip cancelled trains
+      description: Don't remind about a train that has been cancelled.
+      default: true
+      selector:
+        boolean:
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when the reminder is due. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  next_train_sensor: !input next_train_sensor
+  minutes_before: !input minutes_before
+
+variables:
+  next_train_sensor: !input next_train_sensor
+  minutes_before: !input minutes_before
+  skip_cancelled: !input skip_cancelled
+
+# "now()" in a template trigger re-evaluates every minute. The departure time
+# is a bare HH:MM, so the difference is wrapped to cope with midnight.
+triggers:
+  - trigger: template
+    value_template: >-
+      {% set dep = state_attr(next_train_sensor, 'departure_time') %}
+      {% if dep is string and (dep.split(':') | length) == 2 %}
+        {% set diff = (today_at(dep) - now()).total_seconds() / 60 %}
+        {% set mins = diff + 1440 if diff < -720 else (diff - 1440 if diff > 720 else diff) %}
+        {{ 0 < mins <= (minutes_before | float(10)) }}
+      {% else %}
+        false
+      {% endif %}
+
+conditions:
+  - condition: time
+    weekday: !input active_days
+  - condition: template
+    value_template: >-
+      {{ not (skip_cancelled and is_state_attr(next_train_sensor, 'is_cancelled', true)) }}
+
+actions:
+  - variables:
+      departure: "{{ state_attr(next_train_sensor, 'departure_time') }}"
+      platform: >-
+        {{ state_attr(next_train_sensor, 'platform') or 'to be announced' }}
+      delay: "{{ state_attr(next_train_sensor, 'delay_minutes') | int(0) }}"
+      destination: >-
+        {{ (state_attr(next_train_sensor, 'calling_points') or []) | last | default('') }}
+      title: Train departing soon
+      message: >-
+        Your {{ departure }} train{% if destination %} to {{ destination }}{% endif %}
+        leaves from platform {{ platform }}.
+        {% if delay | int > 0 %}It is running {{ delay }} min late.{% endif %}
+  - alias: Send the notification
+    sequence: !input notify_action
