@@ -12,7 +12,9 @@ Unless the user asks otherwise:
    2. Watch the CI checks, polling **every minute**.
    3. If all checks pass, merge the PR.
    4. If any check fails, diagnose the failure, push a fix, and watch CI again. Repeat until CI is green.
-   5. Report back to the user once the PR is merged.
+   5. After merging, watch the CI runs that start on `main` (push event), polling every minute until they finish. These are separate from the PR's checks and can fail on their own.
+   6. If a run on `main` fails, read the job log to find the cause before reporting. If it is transient (for example a network error reaching an external host), re-run it once; if you cannot re-run it, say so and ask the user to. If it is caused by the change, fix it through a new PR.
+   7. Report back to the user once the PR is merged **and** the `main` runs have passed (or say clearly which are still running or failed and why).
 3. **Never close GitHub issues.** When working on a GitHub issue, do not close it (including via closing keywords like `Fixes #123` / `Closes #123` in PRs or commits, or by using the issue tools) unless the user explicitly asks. The user prefers to close issues manually. Reference issues without closing keywords instead (e.g. `Refs #123`, `Related to #123`).
 
 ## Project Overview
