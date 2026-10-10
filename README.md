@@ -694,5 +694,5 @@ Train times and information are provided by National Rail's systems. While we st
 
 ---
 
-**Version**: 1.1.7
+**Version**: 1.1.8
 **Minimum Home Assistant Version**: 2024.1.0
