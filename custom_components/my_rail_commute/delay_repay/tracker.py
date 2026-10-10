@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 import logging
+import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -53,6 +54,8 @@ from .schemes import SchemeSet, build_scheme_set
 from .store import DelayRepayStore
 
 _LOGGER = logging.getLogger(__name__)
+
+_CLOCK_RE = re.compile(r"^\d{2}:\d{2}$")
 
 # Statuses that still count as "outstanding" for the user
 _OUTSTANDING = (ClaimStatus.PENDING, ClaimStatus.ELIGIBLE)
@@ -291,6 +294,7 @@ class DelayRepayTracker:
                 status=ClaimStatus.ELIGIBLE,
                 last_updated=now.isoformat(),
                 confirm_attempts=record.confirm_attempts + 1,
+                details=_details_with_arrival(record, observation),
             )
         )
         return True
@@ -411,6 +415,34 @@ def _service_details(service: dict[str, Any]) -> dict[str, Any]:
         "departure_delay_minutes": service.get("delay_minutes"),
         "calling_points": service.get("calling_point_details") or [],
     }
+
+
+def _details_with_arrival(
+    record: ClaimRecord, observation: ArrivalObservation
+) -> dict[str, Any] | None:
+    """Return the record's details with the destination stop set to the outcome.
+
+    The calling points are a snapshot of the forecast, so once the arrival is
+    confirmed the destination's time is replaced with the actual one.
+    """
+    if not record.details:
+        return record.details
+    actual = observation.actual
+    has_time = bool(actual and _CLOCK_RE.match(actual))
+    if not has_time and not observation.is_cancelled:
+        return record.details
+    destination = record.destination.upper()
+    points = [
+        {
+            **point,
+            "expected": actual if has_time else point.get("expected"),
+            "is_cancelled": observation.is_cancelled or point.get("is_cancelled", False),
+        }
+        if str(point.get("crs", "")).upper() == destination
+        else point
+        for point in record.details.get("calling_points") or []
+    ]
+    return {**record.details, "calling_points": points}
 
 
 def _same_content(a: ClaimRecord, b: ClaimRecord) -> bool:
