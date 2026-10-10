@@ -10,10 +10,9 @@ blueprint:
     commutes configured with one or more connecting legs.
 
 
-    The notification action receives two variables, `title` and `message`. The
-    default action shows a Home Assistant notification; replace it with your
-    own notify action (for example `notify.mobile_app_your_phone`) using
-    `{{ title }}` and `{{ message }}` as the content.
+    To get phone notifications, set **Notification service** to your notify
+    service (for example `notify.mobile_app_your_phone`). The title and message
+    are filled in for you. Until then it shows a Home Assistant notification.
   domain: automation
   author: adamf83
   homeassistant:
@@ -58,16 +57,22 @@ blueprint:
             - fri
             - sat
             - sun
-    notify_action:
-      name: Notification action
+    notify_service:
+      name: Notification service
       description: >-
-        Runs when an alert is due. The variables `title` and `message` are
-        available to your templates.
-      default:
-        - action: persistent_notification.create
-          data:
-            title: "{{ title }}"
-            message: "{{ message }}"
+        The notify service to send to, for example
+        `notify.mobile_app_your_phone`. Leave as is to show a Home Assistant
+        notification instead. Clear it to send nothing.
+      default: persistent_notification.create
+      selector:
+        text:
+    notify_action:
+      name: Additional actions (optional)
+      description: >-
+        Advanced. Extra actions to run when an alert is sent, for example a
+        speaker announcement. The variables `title` and `message` are available
+        to your templates.
+      default: []
       selector:
         action:
 
@@ -87,6 +92,9 @@ conditions:
       {{ trigger.from_state is not none
          and trigger.from_state.state not in ['unavailable', 'unknown'] }}
 
+variables:
+  notify_service: !input notify_service
+
 actions:
   - variables:
       attrs: "{{ trigger.to_state.attributes }}"
@@ -97,9 +105,16 @@ actions:
         {{ device_attr(trigger.entity_id, 'name_by_user') or device_attr(trigger.entity_id, 'name') or 'Your commute' }}
       title: "{{ commute }}: {{ status }} at {{ station }}"
       message: >-
-        {% if status == 'Missed Connection' %}On {{ commute }}, you are not expected to make your connection at {{ station }}.
-        {% elif status == 'Delayed Connection' %}On {{ commute }}, your connection at {{ station }} is delayed.
-        {% else %}On {{ commute }}, your connection at {{ station }} is tight.{% endif %}
+        {% if status == 'Missed Connection' %}You are not expected to make your connection at {{ station }}.
+        {% elif status == 'Delayed Connection' %}Your connection at {{ station }} is delayed.
+        {% else %}Your connection at {{ station }} is tight.{% endif %}
         {{ summary }}
   - alias: Send the notification
+    if: "{{ notify_service | trim != '' }}"
+    then:
+      - action: "{{ notify_service }}"
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+  - alias: Run additional actions
     sequence: !input notify_action

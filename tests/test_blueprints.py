@@ -30,14 +30,6 @@ SOURCE_URL_PREFIX = (
 )
 LONDON = ZoneInfo("Europe/London")
 
-# Replaces the default notification so tests can read what would be sent.
-NOTIFY = [
-    {
-        "action": "test.notify",
-        "data": {"title": "{{ title }}", "message": "{{ message }}"},
-    }
-]
-
 
 def _load(path: Path) -> models.Blueprint:
     return models.Blueprint(
@@ -67,7 +59,7 @@ def test_blueprint_is_valid(path: Path) -> None:
                 k: v for f in entity["filter"] for k, v in f.items()
             }.items(), key
     # The default notify action must render with the documented variables
-    assert "notify_action" in blueprint.inputs
+    assert "notify_service" in blueprint.inputs
 
 
 def test_blueprint_set_is_complete() -> None:
@@ -123,7 +115,7 @@ async def _setup(hass: HomeAssistant, name: str, inputs: dict) -> None:
             "automation": {
                 "use_blueprint": {
                     "path": f"my_rail_commute/{name}.yaml",
-                    "input": {"notify_action": NOTIFY, **inputs},
+                    "input": {"notify_service": "test.notify", **inputs},
                 }
             }
         },
@@ -159,6 +151,8 @@ async def test_status_change_alerts_and_recovery(hass, notify_calls) -> None:
             "max_delay_minutes": 12,
             "major_delays_count": 1,
             "cancelled_count": 0,
+            "total_trains": 4,
+            "on_time_count": 3,
             "origin_name": "Whyteleafe",
             "destination_name": "London Bridge",
         },
@@ -166,11 +160,10 @@ async def test_status_change_alerts_and_recovery(hass, notify_calls) -> None:
     await hass.async_block_till_done()
     assert len(notify_calls) == 1
     assert notify_calls[0].data["title"] == "Morning Commute status: Major Delays"
-    assert (
-        "Morning Commute (Whyteleafe to London Bridge)"
-        in (notify_calls[0].data["message"])
+    assert notify_calls[0].data["message"] == (
+        "Whyteleafe to London Bridge: 1 delayed, worst delay 12 min, "
+        "3 of 4 trains on time."
     )
-    assert "Worst delay: 12 min" in notify_calls[0].data["message"]
 
     hass.states.async_set(sensor, "Normal")
     await hass.async_block_till_done()
@@ -630,3 +623,34 @@ async def test_time_to_leave_mentions_delay(hass, freezer, notify_calls) -> None
     await _tick(hass, freezer, MONDAY_0730.replace(hour=8, minute=16))
     assert len(notify_calls) == 1
     assert "10 min late and now leaves at 08:40" in notify_calls[0].data["message"]
+
+
+async def test_status_change_message_never_empty_or_repeats_name(
+    hass, notify_calls
+) -> None:
+    """Named after its route, the message adds the counts, not the name again."""
+    sensor = "sensor.whyteleafe_status"
+    _attach_device(hass, sensor, "Whyteleafe to London Bridge")
+    hass.states.async_set(sensor, "Normal")
+    await _setup(hass, "commute_status_change", {"status_sensor": sensor})
+
+    hass.states.async_set(
+        sensor,
+        "Critical",
+        {
+            "total_trains": 4,
+            "on_time_count": 4,
+            "origin_name": "Whyteleafe",
+            "destination_name": "London Bridge",
+        },
+    )
+    await hass.async_block_till_done()
+    assert notify_calls[0].data["title"] == (
+        "Whyteleafe to London Bridge status: Critical"
+    )
+    assert notify_calls[0].data["message"] == "4 of 4 trains on time."
+
+    hass.states.async_set(sensor, "Normal")
+    hass.states.async_set(sensor, "Severe Disruption", {})
+    await hass.async_block_till_done()
+    assert notify_calls[1].data["message"] == "Status is now Severe Disruption."

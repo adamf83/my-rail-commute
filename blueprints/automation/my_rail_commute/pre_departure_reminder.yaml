@@ -10,10 +10,9 @@ blueprint:
     `sensor.morning_commute_next_train`).
 
 
-    The notification action receives two variables, `title` and `message`. The
-    default action shows a Home Assistant notification; replace it with your
-    own notify action (for example `notify.mobile_app_your_phone`) using
-    `{{ title }}` and `{{ message }}` as the content.
+    To get phone notifications, set **Notification service** to your notify
+    service (for example `notify.mobile_app_your_phone`). The title and message
+    are filled in for you. Until then it shows a Home Assistant notification.
   domain: automation
   author: adamf83
   homeassistant:
@@ -59,16 +58,22 @@ blueprint:
       default: true
       selector:
         boolean:
-    notify_action:
-      name: Notification action
+    notify_service:
+      name: Notification service
       description: >-
-        Runs when the reminder is due. The variables `title` and `message` are
-        available to your templates.
-      default:
-        - action: persistent_notification.create
-          data:
-            title: "{{ title }}"
-            message: "{{ message }}"
+        The notify service to send to, for example
+        `notify.mobile_app_your_phone`. Leave as is to show a Home Assistant
+        notification instead. Clear it to send nothing.
+      default: persistent_notification.create
+      selector:
+        text:
+    notify_action:
+      name: Additional actions (optional)
+      description: >-
+        Advanced. Extra actions to run when an alert is sent, for example a
+        speaker announcement. The variables `title` and `message` are available
+        to your templates.
+      default: []
       selector:
         action:
 
@@ -80,6 +85,7 @@ trigger_variables:
   minutes_before: !input minutes_before
 
 variables:
+  notify_service: !input notify_service
   next_train_sensor: !input next_train_sensor
   minutes_before: !input minutes_before
   skip_cancelled: !input skip_cancelled
@@ -121,4 +127,11 @@ actions:
         leaves from platform {{ platform }}.
         {% if delay | int > 0 %}It is running {{ delay }} min late.{% endif %}
   - alias: Send the notification
+    if: "{{ notify_service | trim != '' }}"
+    then:
+      - action: "{{ notify_service }}"
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+  - alias: Run additional actions
     sequence: !input notify_action
