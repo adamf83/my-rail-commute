@@ -22,18 +22,20 @@ The integration creates three sensors for each configured commute:
 
 ## Prerequisites
 
-### National Rail API Key
+### Rail Data Marketplace API Key
 
-You'll need a free **Consumer Key** from the Rail Data Marketplace. This is the value the integration calls the "API Key" (elsewhere in these docs it may also be called the "Rail Data Marketplace API key" or "National Rail API key"; they all mean the same thing).
+You'll need a free **Rail Data Marketplace API key** for the **Live Departure Board** product. On Rail Data Marketplace this key is shown as the **Consumer Key**.
 
 1. Visit [Rail Data Marketplace](https://raildata.org.uk/)
 2. Create a free account
 3. Navigate to the [Live Departure Boards API](https://raildata.org.uk/dataProduct/P-d81d6eaf-8060-4467-a339-1c833e50cbbe/overview)
 4. Subscribe to the product (it's free). Two versions are offered; v1.1 is the one this integration is developed and tested against, so choose that
-5. Open the **Specification** tab of the product. It shows a **Consumer Key** and a **Consumer Secret**
-6. Copy the **Consumer Key** and paste it into the **API Key** field when adding the integration. Do **not** use the Consumer Secret; it is not needed
+5. Open the product's **Specification** tab, which shows a **Consumer Key** and a **Consumer Secret**
+6. Copy the **Consumer Key** (this is your API key) and paste it into the **API Key** field when adding the integration. You don't need the Consumer Secret
 
-> **Seeing "Invalid flow specified"?** That usually means the wrong value was pasted (for example the Consumer Secret) or the key belongs to a different product. Re-copy the Consumer Key from the Live Departure Boards product and try again.
+> **Wrong key?** A rejected key shows "Authentication failed. Please check your API key." in the setup dialog. Make sure you copied the Consumer Key (not the Consumer Secret) from the **Live Departure Board** product, not from another product.
+>
+> **"Invalid flow specified"** is a Home Assistant message, not one from this integration. It means the setup dialog was no longer valid when you submitted it (for example it sat open for a long time or Home Assistant restarted). Close the dialog and start **Add Integration** again.
 
 ### Delay Repay keys (optional)
 

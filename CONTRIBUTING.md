@@ -48,7 +48,7 @@ Feature requests are welcome! Please:
 - Python 3.11 or higher
 - Home Assistant development environment
 - Git
-- A National Rail API key for testing
+- A Rail Data Marketplace API key (Live Departure Board product) for testing
 
 ### Setting Up Development Environment
 
