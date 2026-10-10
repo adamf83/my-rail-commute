@@ -1,0 +1,128 @@
+blueprint:
+  name: My Rail Commute - Status change alert
+  description: >-
+    Get notified when your commute status worsens (Minor Delays, Major Delays,
+    Severe Disruption or Critical), and optionally when it returns to Normal.
+
+
+    Pick the **Status** sensor of your commute (for example
+    `sensor.morning_commute_status`). For a multi-leg journey, pick the
+    whole-journey status sensor rather than a `leg` sensor.
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/commute_status_change.yaml
+  input:
+    status_sensor:
+      name: Commute status sensor
+      description: The "Status" sensor created by My Rail Commute.
+      selector:
+        entity:
+          filter:
+            - integration: my_rail_commute
+              domain: sensor
+    alert_statuses:
+      name: Statuses to alert on
+      description: Notify when the status changes to any of these.
+      default:
+        - Minor Delays
+        - Major Delays
+        - Severe Disruption
+        - Critical
+      selector:
+        select:
+          multiple: true
+          options:
+            - Minor Delays
+            - Major Delays
+            - Severe Disruption
+            - Critical
+    notify_recovery:
+      name: Notify when back to Normal
+      description: Also notify when the status returns to Normal after an alert.
+      default: false
+      selector:
+        boolean:
+    active_days:
+      name: Days of the week
+      description: Only notify on these days.
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when an alert is due. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  status_sensor: !input status_sensor
+  alert_statuses: !input alert_statuses
+  notify_recovery: !input notify_recovery
+
+triggers:
+  - trigger: state
+    entity_id: !input status_sensor
+    to: !input alert_statuses
+    id: alert
+  - trigger: state
+    entity_id: !input status_sensor
+    to: Normal
+    id: recovered
+
+conditions:
+  - condition: time
+    weekday: !input active_days
+  - condition: template
+    value_template: >-
+      {% set previous = trigger.from_state.state if trigger.from_state else 'unavailable' %}
+      {{ previous not in ['unavailable', 'unknown']
+         and (trigger.id == 'alert'
+              or (notify_recovery and previous in alert_statuses)) }}
+
+actions:
+  - variables:
+      status: "{{ trigger.to_state.state }}"
+      max_delay: "{{ state_attr(status_sensor, 'max_delay_minutes') | int(0) }}"
+      cancelled: "{{ state_attr(status_sensor, 'cancelled_count') | int(0) }}"
+      delayed: >-
+        {{ (state_attr(status_sensor, 'minor_delays_count') | int(0))
+           + (state_attr(status_sensor, 'major_delays_count') | int(0)) }}
+      title: >-
+        {% if trigger.id == 'recovered' %}Commute back to normal{% else %}Commute status: {{ status }}{% endif %}
+      message: >-
+        {% if trigger.id == 'recovered' %}
+        Your commute is running normally again.
+        {% else %}
+        {% if cancelled | int > 0 %}{{ cancelled }} cancelled. {% endif %}
+        {% if delayed | int > 0 %}{{ delayed }} delayed. {% endif %}
+        {% if max_delay | int > 0 %}Worst delay: {{ max_delay }} min.{% endif %}
+        {% endif %}
+  - alias: Send the notification
+    sequence: !input notify_action

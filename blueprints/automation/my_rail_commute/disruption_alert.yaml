@@ -1,0 +1,107 @@
+blueprint:
+  name: My Rail Commute - Disruption alert
+  description: >-
+    Get notified, with the reasons, when disruption is detected on your commute
+    (any status other than Normal), and optionally when services are back to
+    normal.
+
+
+    Pick the **Has Disruption** binary sensor of your commute (for example
+    `binary_sensor.morning_commute_has_disruption`).
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/disruption_alert.yaml
+  input:
+    disruption_sensor:
+      name: Has disruption sensor
+      description: The "Has Disruption" binary sensor created by My Rail Commute.
+      selector:
+        entity:
+          filter:
+            - integration: my_rail_commute
+              domain: binary_sensor
+    notify_clear:
+      name: Notify when disruption clears
+      description: Also notify when the commute returns to normal.
+      default: false
+      selector:
+        boolean:
+    active_days:
+      name: Days of the week
+      description: Only notify on these days.
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when an alert is due. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  disruption_sensor: !input disruption_sensor
+  notify_clear: !input notify_clear
+
+triggers:
+  - trigger: state
+    entity_id: !input disruption_sensor
+    from: "off"
+    to: "on"
+    id: disruption
+  - trigger: state
+    entity_id: !input disruption_sensor
+    from: "on"
+    to: "off"
+    id: clear
+
+conditions:
+  - condition: time
+    weekday: !input active_days
+  - condition: template
+    value_template: "{{ trigger.id == 'disruption' or notify_clear }}"
+
+actions:
+  - variables:
+      status: "{{ state_attr(disruption_sensor, 'current_status') or 'Disruption' }}"
+      max_delay: "{{ state_attr(disruption_sensor, 'max_delay_minutes') | int(0) }}"
+      cancelled: "{{ state_attr(disruption_sensor, 'cancelled_count') | int(0) }}"
+      reasons: "{{ state_attr(disruption_sensor, 'disruption_reasons') or [] }}"
+      title: >-
+        {% if trigger.id == 'clear' %}Commute back to normal{% else %}Commute disruption: {{ status }}{% endif %}
+      message: >-
+        {% if trigger.id == 'clear' %}
+        Services on your commute are running normally again.
+        {% else %}
+        {% if reasons | length > 0 %}{{ reasons | join('. ') }}.{% endif %}
+        {% if cancelled | int > 0 %}{{ cancelled }} cancelled.{% endif %}
+        {% if max_delay | int > 0 %}Worst delay: {{ max_delay }} min.{% endif %}
+        {% endif %}
+  - alias: Send the notification
+    sequence: !input notify_action

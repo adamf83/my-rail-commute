@@ -1,0 +1,152 @@
+blueprint:
+  name: My Rail Commute - Time to leave for the station
+  description: >-
+    Get a "leave now" alert at the right moment to reach the station for your
+    next train: expected departure minus your travel time to the station minus
+    a safety buffer. Because it follows the *expected* departure, a delayed
+    train tells you to leave later, and a cancelled train can be skipped.
+
+
+    If the train's expected time changes after the alert, the alert is sent
+    again with the updated time.
+
+
+    Pick the **Next Train** sensor of your commute (for example
+    `sensor.morning_commute_next_train`). Optionally pick a person so the
+    alert is only sent while that person is at home.
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/time_to_leave.yaml
+  input:
+    next_train_sensor:
+      name: Next train sensor
+      description: The "Next Train" sensor created by My Rail Commute.
+      selector:
+        entity:
+          filter:
+            - integration: my_rail_commute
+              domain: sensor
+    travel_minutes:
+      name: Travel time to the station
+      description: How long it takes you to get from here to the platform.
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 180
+          unit_of_measurement: min
+          mode: box
+    buffer_minutes:
+      name: Safety buffer
+      description: Extra minutes to allow on top of the travel time.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: min
+          mode: box
+    person:
+      name: Only when this person is home (optional)
+      description: Leave empty to alert regardless of where anyone is.
+      default: ""
+      selector:
+        entity:
+          domain: person
+    active_days:
+      name: Days of the week
+      description: Only alert on these days.
+      default: [mon, tue, wed, thu, fri]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    skip_cancelled:
+      name: Skip cancelled trains
+      description: Don't alert about a train that has been cancelled.
+      default: true
+      selector:
+        boolean:
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when it is time to leave. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: single
+max_exceeded: silent
+
+trigger_variables:
+  next_train_sensor: !input next_train_sensor
+  travel_minutes: !input travel_minutes
+  buffer_minutes: !input buffer_minutes
+
+variables:
+  next_train_sensor: !input next_train_sensor
+  person: !input person
+  skip_cancelled: !input skip_cancelled
+  travel_minutes: !input travel_minutes
+  buffer_minutes: !input buffer_minutes
+
+# "now()" in a template trigger re-evaluates every minute. The departure time
+# is a bare HH:MM, so the difference is wrapped to cope with midnight.
+triggers:
+  - trigger: template
+    value_template: >-
+      {% set dep = state_attr(next_train_sensor, 'departure_time') %}
+      {% if dep is string and (dep.split(':') | length) == 2 %}
+        {% set diff = (today_at(dep) - now()).total_seconds() / 60 %}
+        {% set mins = diff + 1440 if diff < -720 else (diff - 1440 if diff > 720 else diff) %}
+        {{ 0 < mins <= ((travel_minutes | float(0)) + (buffer_minutes | float(0))) }}
+      {% else %}
+        false
+      {% endif %}
+
+conditions:
+  - condition: time
+    weekday: !input active_days
+  - condition: template
+    value_template: >-
+      {{ not (skip_cancelled and is_state_attr(next_train_sensor, 'is_cancelled', true)) }}
+  - condition: template
+    value_template: >-
+      {{ not person or is_state(person, 'home') }}
+
+actions:
+  - variables:
+      departure: "{{ state_attr(next_train_sensor, 'departure_time') }}"
+      platform: >-
+        {{ state_attr(next_train_sensor, 'platform') or 'to be announced' }}
+      delay: "{{ state_attr(next_train_sensor, 'delay_minutes') | int(0) }}"
+      title: Time to leave
+      message: >-
+        {% if delay | int > 0 %}
+        Your train is {{ delay }} min late and now leaves at {{ departure }}
+        (platform {{ platform }}). Leave now to catch it.
+        {% else %}
+        Leave now to catch the {{ departure }} train (platform {{ platform }}).
+        {% endif %}
+  - alias: Send the notification
+    sequence: !input notify_action

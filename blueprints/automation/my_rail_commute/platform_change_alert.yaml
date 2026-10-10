@@ -1,0 +1,103 @@
+blueprint:
+  name: My Rail Commute - Platform change alert
+  description: >-
+    Get notified when the platform of an upcoming train changes, so you can
+    move before the rush. Platforms that are announced for the first time
+    (previously blank or "TBA") are not treated as a change unless you ask
+    for them.
+
+
+    Pick one or more **Next Train** / **Train N** sensors of your commute. The
+    Next Train sensor covers your very next train; add Train 2, Train 3 and so
+    on if you also want to hear about later services.
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/platform_change_alert.yaml
+  input:
+    train_sensors:
+      name: Train sensors
+      description: The "Next Train" and/or "Train N" sensors to watch.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: my_rail_commute
+              domain: sensor
+    include_first_announcement:
+      name: Also notify when a platform is first announced
+      description: >-
+        Send an alert when a train goes from no platform (or "TBA") to a
+        platform, not just when an announced platform changes.
+      default: false
+      selector:
+        boolean:
+    active_days:
+      name: Days of the week
+      description: Only notify on these days.
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when an alert is due. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  include_first_announcement: !input include_first_announcement
+
+triggers:
+  - trigger: state
+    entity_id: !input train_sensors
+    attribute: platform
+
+conditions:
+  - condition: time
+    weekday: !input active_days
+  - condition: template
+    value_template: >-
+      {% set attrs = trigger.to_state.attributes if trigger.to_state else {} %}
+      {{ attrs.get('platform_changed', false) is true
+         and (include_first_announcement
+              or (attrs.get('previous_platform') or '') not in ['', 'TBA']) }}
+
+actions:
+  - variables:
+      attrs: "{{ trigger.to_state.attributes }}"
+      departure: "{{ attrs.get('departure_time') }}"
+      platform: "{{ attrs.get('platform') or 'TBA' }}"
+      previous: "{{ attrs.get('previous_platform') or '' }}"
+      title: Platform change
+      message: >-
+        The {{ departure }} train
+        {% if previous not in ['', 'TBA'] %}has moved from platform {{ previous }} to platform {{ platform }}.
+        {% else %}will now leave from platform {{ platform }}.{% endif %}
+  - alias: Send the notification
+    sequence: !input notify_action

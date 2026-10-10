@@ -69,6 +69,10 @@ The integration automatically adjusts update frequency:
 - **Off-Peak Hours**: Every 5 minutes
 - **Night Time** (23:00-05:00): Every 15 minutes (or disabled if night-time updates are off)
 
+## Automation Blueprints
+
+Importable Home Assistant blueprints (status change, pre-departure reminder, time to leave, disruption, platform change, connection and Delay Repay alerts) are included, so common automations need no YAML. See the [README](https://github.com/adamf83/my-rail-commute#automation-blueprints) for one-click import links.
+
 ## Support
 
 For issues, questions, or feature requests, please visit the [GitHub repository](https://github.com/adamf83/my-rail-commute).

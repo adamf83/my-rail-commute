@@ -1,0 +1,93 @@
+blueprint:
+  name: My Rail Commute - Delay Repay alert
+  description: >-
+    Get notified the same day when a journey may qualify for Delay Repay, with
+    the claim deadline and claim link.
+
+
+    Requires Delay Repay tracking to be enabled for the commute (Configure >
+    Track Delay Repay claims). Pick the **Delay Repay Eligible** binary sensor
+    (for example `binary_sensor.morning_commute_delay_repay_eligible`).
+
+
+    Journeys marked as an estimate are based on the forecast arrival time, so
+    check the real arrival time before you claim.
+
+
+    The notification action receives two variables, `title` and `message`. The
+    default action shows a Home Assistant notification; replace it with your
+    own notify action (for example `notify.mobile_app_your_phone`) using
+    `{{ title }}` and `{{ message }}` as the content.
+  domain: automation
+  author: adamf83
+  homeassistant:
+    min_version: 2024.10.0
+  source_url: https://github.com/adamf83/my-rail-commute/blob/main/blueprints/automation/my_rail_commute/delay_repay_alert.yaml
+  input:
+    eligible_sensor:
+      name: Delay Repay eligible sensor
+      description: The "Delay Repay Eligible" binary sensor created by My Rail Commute.
+      selector:
+        entity:
+          filter:
+            - integration: my_rail_commute
+              domain: binary_sensor
+    active_days:
+      name: Days of the week
+      description: Only notify on these days.
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          options:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+            - sat
+            - sun
+    notify_action:
+      name: Notification action
+      description: >-
+        Runs when an alert is due. The variables `title` and `message` are
+        available to your templates.
+      default:
+        - action: persistent_notification.create
+          data:
+            title: "{{ title }}"
+            message: "{{ message }}"
+      selector:
+        action:
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  eligible_sensor: !input eligible_sensor
+
+triggers:
+  - trigger: state
+    entity_id: !input eligible_sensor
+    from: "off"
+    to: "on"
+
+conditions:
+  - condition: time
+    weekday: !input active_days
+
+actions:
+  - variables:
+      latest: "{{ state_attr(eligible_sensor, 'latest') or {} }}"
+      journeys: "{{ state_attr(eligible_sensor, 'journeys_today') | int(1) }}"
+      title: Possible Delay Repay claim
+      message: >-
+        {% if latest.get('is_cancelled') %}Your {{ latest.get('scheduled_departure') }} train was cancelled.
+        {% elif latest.get('delay_minutes') %}Your {{ latest.get('scheduled_departure') }} train is {{ latest.get('delay_minutes') }} min late.
+        {% else %}A journey today may be eligible.{% endif %}
+        {% if latest.get('confirmation') == 'estimated' %}(Estimated, so check the real arrival time before claiming.){% endif %}
+        {% if journeys | int > 1 %}{{ journeys }} journeys today may be claimable.{% endif %}
+        {% if latest.get('claim_deadline') %}Claim by {{ latest.get('claim_deadline') }}.{% endif %}
+        {% if latest.get('claim_url') %}{{ latest.get('claim_url') }}{% endif %}
+  - alias: Send the notification
+    sequence: !input notify_action
