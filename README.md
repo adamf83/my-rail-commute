@@ -156,10 +156,10 @@ Tracks late and cancelled journeys that may qualify for [Delay Repay](https://ww
 
 **How delays are measured:** a journey is first recorded from the departure board's *forecast* arrival time (`confirmation: estimated`). From the expected arrival time the integration looks the train up on the destination's arrivals board and, once the train has actually arrived, replaces the forecast with the real arrival time (`confirmation: confirmed`). A forecast that turns out to be under the threshold is removed, and a train cancelled en route becomes a cancellation. This costs a few extra API calls (an arrivals board and a service lookup) only for journeys already forecast as late, for up to two hours after their expected arrival. An API outage doesn't use up the checks; they are retried on the next update.
 
-**Confirming arrivals needs two extra API keys (optional).** Rail Data Marketplace sells the arrivals board and service details as separate products from the departure board, each with its own subscription (free) and its own key, so the key from [Prerequisites](#national-rail-api-key) will not work for them:
+**Confirming arrivals needs two extra API keys (optional).** Rail Data Marketplace sells the arrivals board and service details as separate products from the departure board, each with its own subscription (free) and its own key, so the key from [Prerequisites](#national-rail-api-key) will not work for them. As before, the key is the **Consumer Key** shown on each product's Specification tab:
 
-1. On [Rail Data Marketplace](https://raildata.org.uk/), subscribe to the **Live Arrival Board** product and copy its key.
-2. Subscribe to the **Service Details** product and copy its key.
+1. On [Rail Data Marketplace](https://raildata.org.uk/), subscribe to the **Live Arrival Board** product and copy its Consumer Key.
+2. Subscribe to the **Service Details** product and copy its Consumer Key.
 3. Paste them into **Arrival Board API key** and **Service Details API key** when you enable Delay Repay, or later under **Configure**.
 
 You only enter them once: other commutes reuse a key already stored on any commute. Without the arrival board key, journeys simply stay `estimated`, and a warning in the log says so. With only the arrival board key, journeys are confirmed only if the arrivals board itself reports the actual time. If a key is rejected, confirmation stops with one warning in the log until you correct it under **Configure**.
@@ -223,13 +223,16 @@ data:
 
 ### National Rail API Key
 
-You'll need a free API key from the Rail Data Marketplace:
+You'll need a free **Consumer Key** from the Rail Data Marketplace. This is the value the integration calls the "API Key" (elsewhere in these docs it may also be called the "Rail Data Marketplace API key" or "National Rail API key"; they all mean the same thing).
 
 1. Visit [Rail Data Marketplace](https://raildata.org.uk/)
 2. Create a free account
 3. Navigate to the [Live Departure Boards API](https://raildata.org.uk/dataProduct/P-d81d6eaf-8060-4467-a339-1c833e50cbbe/overview)
-4. Subscribe to the API (it's free)
-5. Copy your API key
+4. Subscribe to the product (it's free). Two versions are offered; v1.1 is the one this integration is developed and tested against, so choose that
+5. Open the **Specification** tab of the product. It shows a **Consumer Key** and a **Consumer Secret**
+6. Copy the **Consumer Key** and paste it into the **API Key** field when adding the integration. Do **not** use the Consumer Secret; it is not needed
+
+> **Seeing "Invalid flow specified"?** That usually means the wrong value was pasted (for example the Consumer Secret) or the key belongs to a different product. Re-copy the Consumer Key from the Live Departure Boards product and try again.
 
 #### Delay Repay keys (optional)
 
@@ -594,7 +597,7 @@ cards:
 
 ### Authentication Errors
 
-- Double-check your API key is correct
+- Double-check you pasted the **Consumer Key** (not the Consumer Secret) from the Live Departure Boards product's Specification tab
 - Ensure you're subscribed to the Live Departure Boards API on Rail Data Marketplace
 - Check if your API key has expired or needs renewal
 

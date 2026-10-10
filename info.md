@@ -24,13 +24,16 @@ The integration creates three sensors for each configured commute:
 
 ### National Rail API Key
 
-You'll need a free API key from the Rail Data Marketplace:
+You'll need a free **Consumer Key** from the Rail Data Marketplace. This is the value the integration calls the "API Key" (elsewhere in these docs it may also be called the "Rail Data Marketplace API key" or "National Rail API key"; they all mean the same thing).
 
 1. Visit [Rail Data Marketplace](https://raildata.org.uk/)
 2. Create a free account
 3. Navigate to the [Live Departure Boards API](https://raildata.org.uk/dataProduct/P-d81d6eaf-8060-4467-a339-1c833e50cbbe/overview)
-4. Subscribe to the API (it's free)
-5. Copy your API key
+4. Subscribe to the product (it's free). Two versions are offered; v1.1 is the one this integration is developed and tested against, so choose that
+5. Open the **Specification** tab of the product. It shows a **Consumer Key** and a **Consumer Secret**
+6. Copy the **Consumer Key** and paste it into the **API Key** field when adding the integration. Do **not** use the Consumer Secret; it is not needed
+
+> **Seeing "Invalid flow specified"?** That usually means the wrong value was pasted (for example the Consumer Secret) or the key belongs to a different product. Re-copy the Consumer Key from the Live Departure Boards product and try again.
 
 ### Delay Repay keys (optional)
 
