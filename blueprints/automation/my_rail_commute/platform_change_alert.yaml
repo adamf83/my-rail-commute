@@ -12,9 +12,9 @@ blueprint:
     on if you also want to hear about later services.
 
 
-    To get phone notifications, set **Notification service** to your notify
-    service (for example `notify.mobile_app_your_phone`). The title and message
-    are filled in for you. Until then it shows a Home Assistant notification.
+    To get phone notifications, pick your phone in **Phone to notify**. The
+    title and message are filled in for you. Until then it shows a Home
+    Assistant notification.
   domain: automation
   author: adamf83
   homeassistant:
@@ -53,13 +53,24 @@ blueprint:
             - fri
             - sat
             - sun
-    notify_service:
-      name: Notification service
+    notify_device:
+      name: Phone to notify
       description: >-
-        The notify service to send to, for example
-        `notify.mobile_app_your_phone`. Leave as is to show a Home Assistant
-        notification instead. Clear it to send nothing.
-      default: persistent_notification.create
+        Pick the phone running the Home Assistant app. The title and message
+        are filled in for you. Leave empty to show a Home Assistant
+        notification instead.
+      default: ""
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    notify_service:
+      name: Other notify service (optional)
+      description: >-
+        Advanced. To use something other than the app, for example
+        `notify.telegram`, enter the notify service here. Can be used as well
+        as the phone.
+      default: ""
       selector:
         text:
     notify_action:
@@ -76,6 +87,7 @@ mode: queued
 max_exceeded: silent
 
 variables:
+  notify_device: !input notify_device
   notify_service: !input notify_service
   include_first_announcement: !input include_first_announcement
 
@@ -107,10 +119,24 @@ actions:
         The {{ departure }} train
         {% if previous not in ['', 'TBA'] %}has moved from platform {{ previous }} to platform {{ platform }}.
         {% else %}will now leave from platform {{ platform }}.{% endif %}
-  - alias: Send the notification
+  - alias: Notify the phone
+    if: "{{ notify_device != '' }}"
+    then:
+      - action: "notify.mobile_app_{{ device_attr(notify_device, 'name') | slugify }}"
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+  - alias: Send to the notify service
     if: "{{ notify_service | trim != '' }}"
     then:
       - action: "{{ notify_service }}"
+        data:
+          title: "{{ title }}"
+          message: "{{ message }}"
+  - alias: Show a Home Assistant notification
+    if: "{{ notify_device == '' and notify_service | trim == '' }}"
+    then:
+      - action: persistent_notification.create
         data:
           title: "{{ title }}"
           message: "{{ message }}"

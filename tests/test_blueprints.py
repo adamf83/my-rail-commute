@@ -654,3 +654,63 @@ async def test_status_change_message_never_empty_or_repeats_name(
     hass.states.async_set(sensor, "Severe Disruption", {})
     await hass.async_block_till_done()
     assert notify_calls[1].data["message"] == "Status is now Severe Disruption."
+
+
+async def test_notify_phone_picked_from_device(hass, notify_calls) -> None:
+    """Picking a phone sends to its mobile app notify service, no typing."""
+    entry = MockConfigEntry(domain="mobile_app")
+    entry.add_to_hass(hass)
+    phone = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("mobile_app", "pixel")},
+        name="Adam's Pixel 9",
+    )
+    phone_calls = async_mock_service(hass, "notify", "mobile_app_adam_s_pixel_9")
+    sensor = "sensor.morning_status"
+    hass.states.async_set(sensor, "Normal")
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {
+            "automation": {
+                "use_blueprint": {
+                    "path": "my_rail_commute/commute_status_change.yaml",
+                    "input": {"status_sensor": sensor, "notify_device": phone.id},
+                }
+            }
+        },
+    )
+    hass.states.async_set(sensor, "Critical")
+    await hass.async_block_till_done()
+    assert len(phone_calls) == 1
+    assert phone_calls[0].data["title"].endswith("status: Critical")
+    assert phone_calls[0].data["message"]
+    assert notify_calls == []
+
+
+async def test_notify_defaults_to_home_assistant_notification(hass) -> None:
+    """With nothing configured the alert still shows, with title and message."""
+    target = Path(hass.config.path("blueprints", "automation", "my_rail_commute"))
+    target.mkdir(parents=True, exist_ok=True)
+    for path in BLUEPRINT_FILES:
+        shutil.copy(path, target / path.name)
+    created = async_mock_service(hass, "persistent_notification", "create")
+    sensor = "sensor.morning_status"
+    hass.states.async_set(sensor, "Normal")
+    assert await async_setup_component(
+        hass,
+        "automation",
+        {
+            "automation": {
+                "use_blueprint": {
+                    "path": "my_rail_commute/commute_status_change.yaml",
+                    "input": {"status_sensor": sensor},
+                }
+            }
+        },
+    )
+    hass.states.async_set(sensor, "Critical")
+    await hass.async_block_till_done()
+    assert len(created) == 1
+    assert created[0].data["title"].endswith("status: Critical")
+    assert created[0].data["message"]
