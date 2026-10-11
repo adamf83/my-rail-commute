@@ -25,6 +25,10 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import NationalRailDataUpdateCoordinator
+from .debug_services import (
+    async_register_services as async_register_debug_services,
+    async_remove_services as async_remove_debug_services,
+)
 from .delay_repay.confirm import DestinationBoardSource
 from .delay_repay.services import async_register_services, async_remove_services
 from .delay_repay.tracker import async_create_tracker
@@ -159,6 +163,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 supports_response=SupportsResponse.ONLY,
             )
 
+        async_register_debug_services(hass)
+
         _LOGGER.debug("My Rail Commute integration setup complete")
 
         return True
@@ -191,6 +197,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Remove domain-wide services when the last entry is unloaded
         if not hass.data[DOMAIN]:
             hass.services.async_remove(DOMAIN, SERVICE_GET_HISTORICAL_RAW_DATA)
+            async_remove_debug_services(hass)
 
         # Remove Delay Repay services once no entry still uses them
         if not any(

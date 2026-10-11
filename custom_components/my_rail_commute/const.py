@@ -255,6 +255,11 @@ SERVICE_MARK_DELAY_REPAY_CLAIMED: Final = "mark_delay_repay_claimed"
 SERVICE_DISMISS_DELAY_REPAY: Final = "dismiss_delay_repay"
 SERVICE_GET_DELAY_REPAY_CLAIMS: Final = "get_delay_repay_claims"
 
+# Debugging actions returning the raw Rail Data Marketplace response
+SERVICE_GET_DEPARTURE_BOARD: Final = "get_departure_board"
+SERVICE_GET_ARRIVAL_BOARD: Final = "get_arrival_board"
+SERVICE_GET_SERVICE_DETAILS: Final = "get_service_details"
+
 ATTR_ENTRY_ID: Final = "entry_id"
 ATTR_CLAIMS: Final = "claims"
 ATTR_CLAIMS_TRUNCATED: Final = "claims_truncated"

@@ -204,3 +204,121 @@ get_delay_repay_claims:
       required: false
       selector:
         object: {}
+
+get_departure_board:
+  name: Get Departure Board
+  description: Debugging tool. Return the raw Rail Data Marketplace departure board response (GetDepBoardWithDetails) for a station, using the API key already configured. The result is the status and JSON body exactly as the API sent them. Fields left blank are not sent, so the API's own default applies.
+  fields:
+    entry_id:
+      name: Commute
+      description: The commute whose departure board API key to use. Optional when only one commute is set up.
+      required: false
+      selector:
+        config_entry:
+          integration: my_rail_commute
+    crs:
+      name: Station
+      description: The 3-letter CRS code of the station the board is for, e.g. "PAD".
+      required: true
+      example: PAD
+      selector:
+        text: {}
+    filter_crs:
+      name: Destination filter
+      description: Only show services calling at this station (3-letter CRS code).
+      required: false
+      example: RDG
+      selector:
+        text: {}
+    time_window:
+      name: Time window
+      description: Minutes after now that the board covers.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+          mode: box
+    num_rows:
+      name: Number of rows
+      description: Maximum number of services to return.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 150
+          mode: box
+
+get_arrival_board:
+  name: Get Arrival Board
+  description: Debugging tool. Return the raw Rail Data Marketplace arrival board response (GetArrBoardWithDetails) for a station, using the API key already configured. This needs the Live Arrival Board key. The result is the status and JSON body exactly as the API sent them. Fields left blank are not sent, so the API's own default applies.
+  fields:
+    entry_id:
+      name: Commute
+      description: The commute whose API keys to use. Optional when only one commute is set up. The arrival board key may come from another commute.
+      required: false
+      selector:
+        config_entry:
+          integration: my_rail_commute
+    crs:
+      name: Station
+      description: The 3-letter CRS code of the station the board is for (e.g. your journey's destination), e.g. "RDG".
+      required: true
+      example: RDG
+      selector:
+        text: {}
+    filter_crs:
+      name: Origin filter
+      description: Only show services that started at this station (3-letter CRS code).
+      required: false
+      example: PAD
+      selector:
+        text: {}
+    time_offset:
+      name: Time offset
+      description: Minutes relative to now at which the board starts. Negative values look back.
+      required: false
+      selector:
+        number:
+          min: -120
+          max: 120
+          unit_of_measurement: min
+          mode: box
+    time_window:
+      name: Time window
+      description: Minutes the board covers from the offset.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 120
+          unit_of_measurement: min
+          mode: box
+    num_rows:
+      name: Number of rows
+      description: Maximum number of services to return.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 150
+          mode: box
+
+get_service_details:
+  name: Get Service Details
+  description: Debugging tool. Return the raw Rail Data Marketplace service details response (GetServiceDetails) for a service ID, using the API key already configured. This needs the Service Details key. A service ID only works while the service is on the board that issued it, so use one from a board response straight away. The result is the status and JSON body exactly as the API sent them.
+  fields:
+    entry_id:
+      name: Commute
+      description: The commute whose API keys to use. Optional when only one commute is set up. The service details key may come from another commute.
+      required: false
+      selector:
+        config_entry:
+          integration: my_rail_commute
+    service_id:
+      name: Service ID
+      description: The service ID from a board response (the serviceIdUrlSafe or serviceID field).
+      required: true
+      selector:
+        text: {}

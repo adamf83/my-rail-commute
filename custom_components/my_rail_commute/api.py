@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import re
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 from aiohttp import ClientError, ClientResponseError
@@ -40,6 +42,12 @@ _PRODUCT_LABELS = {
     PRODUCT_DEPARTURE: "departure board",
     PRODUCT_ARRIVAL: "arrival board",
     PRODUCT_SERVICE_DETAILS: "service details",
+}
+
+_PRODUCT_BASE_URLS = {
+    PRODUCT_DEPARTURE: API_BASE_URL,
+    PRODUCT_ARRIVAL: ARRIVAL_API_BASE_URL,
+    PRODUCT_SERVICE_DETAILS: SERVICE_DETAILS_API_BASE_URL,
 }
 
 _TIME_FORMAT_RE = re.compile(r"^\d{2}:\d{2}$")
@@ -565,6 +573,115 @@ class NationalRailAPI:
                 return details
         raise NationalRailAPIError(
             f"Unexpected service details response type: {type(data).__name__}"
+        )
+
+    async def fetch_raw(
+        self,
+        product: str,
+        endpoint: str,
+        params: dict[str, Any] | None,
+        api_key: str,
+    ) -> dict[str, Any]:
+        """Make one request and return the status and body as received.
+
+        Used by the debugging actions. Unlike ``_request`` this does not
+        throttle, retry or map HTTP errors to exceptions, so a 400, 404 or
+        429 is returned as data along with the body the API sent.
+
+        Args:
+            product: Which Rail Data product (and so base URL) to call
+            endpoint: Endpoint path, already URL-quoted
+            params: Query parameters; None values are left out
+            api_key: Key for the product (never included in the result)
+
+        Returns:
+            ``{"request": {...}, "status": int, "body": ...}`` where body is
+            the parsed JSON, or the raw text if it is not JSON
+
+        Raises:
+            NationalRailAPIError: If the API could not be reached
+        """
+        url = f"{_PRODUCT_BASE_URLS[product]}/{endpoint}"
+        query = {k: v for k, v in (params or {}).items() if v is not None}
+        try:
+            async with asyncio.timeout(API_TIMEOUT):
+                async with self._session.get(
+                    url, headers=self._build_headers(api_key), params=query
+                ) as response:
+                    status = response.status
+                    text = await response.text(errors="replace")
+        except (TimeoutError, ClientError) as err:
+            _LOGGER.debug("Raw request to %s failed: %s", url, err)
+            raise NationalRailAPIError(ERROR_NETWORK) from err
+
+        body: Any = None
+        if text:
+            try:
+                body = json.loads(text)
+            except ValueError:
+                body = text
+        return {
+            "request": {"product": product, "url": url, "params": query},
+            "status": status,
+            "body": body,
+        }
+
+    async def get_raw_departure_board(
+        self,
+        crs: str,
+        api_key: str,
+        filter_crs: str | None = None,
+        time_window: int | None = None,
+        num_rows: int | None = None,
+    ) -> dict[str, Any]:
+        """Return the raw GetDepBoardWithDetails response for a station."""
+        return await self.fetch_raw(
+            PRODUCT_DEPARTURE,
+            f"GetDepBoardWithDetails/{quote(crs.upper(), safe='')}",
+            {
+                "filterCrs": filter_crs.upper() if filter_crs else None,
+                "timeWindow": time_window,
+                "numRows": num_rows,
+            },
+            api_key,
+        )
+
+    async def get_raw_arrival_board(
+        self,
+        crs: str,
+        api_key: str,
+        filter_crs: str | None = None,
+        time_offset: int | None = None,
+        time_window: int | None = None,
+        num_rows: int | None = None,
+    ) -> dict[str, Any]:
+        """Return the raw GetArrBoardWithDetails response for a station.
+
+        As in the integration, the board is filtered to services *from*
+        ``filter_crs``.
+        """
+        return await self.fetch_raw(
+            PRODUCT_ARRIVAL,
+            f"GetArrBoardWithDetails/{quote(crs.upper(), safe='')}",
+            {
+                "filterCrs": filter_crs.upper() if filter_crs else None,
+                "filterType": "from" if filter_crs else None,
+                "timeOffset": time_offset,
+                "timeWindow": time_window,
+                "numRows": num_rows,
+            },
+            api_key,
+        )
+
+    async def get_raw_service_details(
+        self, service_id: str, api_key: str
+    ) -> dict[str, Any]:
+        """Return the raw GetServiceDetails response for a service ID."""
+        return await self.fetch_raw(
+            PRODUCT_SERVICE_DETAILS,
+            f"GetServiceDetails/{quote(service_id, safe='')}",
+            None,
+            api_key,
         )
 
     def _parse_departure_board(self, data: dict[str, Any], destination_crs: str | None = None) -> dict[str, Any]:
