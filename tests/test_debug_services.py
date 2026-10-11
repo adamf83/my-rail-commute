@@ -117,7 +117,7 @@ class TestRegistration:
 
 
 class TestEntrySelection:
-    async def test_single_commute_is_default(self):
+    async def test_no_entry_id_uses_the_first_commute(self):
         hass, apis = _hass(_entry("a"))
         handlers, _ = _register(hass)
 
@@ -132,15 +132,14 @@ class TestEntrySelection:
             num_rows=None,
         )
 
-    async def test_several_commutes_need_entry_id(self):
-        hass, _ = _hass(_entry("a", "Morning"), _entry("b", "Evening"))
+    async def test_several_commutes_need_no_entry_id(self):
+        hass, apis = _hass(_entry("a", "Morning"), _entry("b", "Evening"))
         handlers, _ = _register(hass)
 
-        with pytest.raises(ServiceValidationError) as err:
-            await handlers[SERVICE_GET_DEPARTURE_BOARD](_Call(crs="PAD"))
+        await handlers[SERVICE_GET_DEPARTURE_BOARD](_Call(crs="PAD"))
 
-        assert "Morning (a)" in str(err.value)
-        assert "Evening (b)" in str(err.value)
+        apis["a"].get_raw_departure_board.assert_awaited_once()
+        apis["b"].get_raw_departure_board.assert_not_awaited()
 
     async def test_entry_id_selects_that_commutes_key(self):
         hass, apis = _hass(_entry("a"), _entry("b"))
@@ -165,7 +164,7 @@ class TestEntrySelection:
         hass, _ = _hass()
         handlers, _ = _register(hass)
 
-        with pytest.raises(ServiceValidationError, match="none set up"):
+        with pytest.raises(ServiceValidationError, match="departure board"):
             await handlers[SERVICE_GET_DEPARTURE_BOARD](_Call(crs="PAD"))
 
 
@@ -208,6 +207,27 @@ class TestKeys:
         )
 
         apis["a"].get_raw_service_details.assert_awaited_once_with("abc", "det-b")
+
+    async def test_lookup_without_entry_id_uses_whichever_commute_has_the_key(self):
+        hass, apis = _hass(
+            _entry("a"),
+            _entry("b"),
+            _entry("c", **{CONF_SERVICE_DETAILS_API_KEY: "det-c"}),
+        )
+        handlers, _ = _register(hass)
+
+        await handlers[SERVICE_GET_SERVICE_DETAILS](_Call(service_id="abc"))
+
+        # The first commute resolves the key another commute holds
+        apis["a"].get_raw_service_details.assert_awaited_once_with("abc", "det-c")
+
+    async def test_entry_without_the_key_is_skipped_when_none_chosen(self):
+        hass, apis = _hass(_entry("a"), _entry("b", **{CONF_ARRIVAL_API_KEY: "arr"}))
+        handlers, _ = _register(hass)
+
+        await handlers[SERVICE_GET_ARRIVAL_BOARD](_Call(crs="RDG"))
+
+        assert apis["a"].get_raw_arrival_board.await_args.args[1] == "arr"
 
     async def test_missing_key_names_the_product(self):
         hass, _ = _hass(_entry("a"))

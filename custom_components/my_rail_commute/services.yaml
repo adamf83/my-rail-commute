@@ -211,7 +211,7 @@ get_departure_board:
   fields:
     entry_id:
       name: Commute
-      description: The commute whose departure board API key to use. Optional when only one commute is set up.
+      description: Optional. Leave blank to use the first commute's departure board API key, or pick a commute to use its key.
       required: false
       selector:
         config_entry:
@@ -256,7 +256,7 @@ get_arrival_board:
   fields:
     entry_id:
       name: Commute
-      description: The commute whose API keys to use. Optional when only one commute is set up. The arrival board key may come from another commute.
+      description: Optional. Leave blank to use the arrival board API key from whichever commute has one, or pick a commute to use its key.
       required: false
       selector:
         config_entry:
@@ -311,7 +311,7 @@ get_service_details:
   fields:
     entry_id:
       name: Commute
-      description: The commute whose API keys to use. Optional when only one commute is set up. The service details key may come from another commute.
+      description: Optional. Leave blank to use the service details API key from whichever commute has one, or pick a commute to use its key.
       required: false
       selector:
         config_entry:

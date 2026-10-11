@@ -41,42 +41,39 @@ _ALL_SERVICES = (
 )
 
 
-def _resolve_entry_id(hass: HomeAssistant, entry_id: str | None) -> str:
-    """Return the commute to use, defaulting to the only one that is set up."""
+def _select_client(
+    hass: HomeAssistant, entry_id: str | None, conf_key: str, product_label: str
+) -> tuple[NationalRailAPI, str]:
+    """Return an API client and the key to use for a product.
+
+    With an ``entry_id`` only that commute is used. Without one, the first
+    set-up commute that has a key for the product is used, so a lookup never
+    needs a commute to be chosen: the arrival board and service details keys
+    belong to the user's subscription, and a request needs only a session
+    and a key.
+    """
     loaded = hass.data.get(DOMAIN, {})
     if entry_id:
         if entry_id not in loaded:
             raise ServiceValidationError(f"No commute found with entry_id: {entry_id}")
-        return entry_id
-    if len(loaded) == 1:
-        return next(iter(loaded))
-
-    options = []
-    for loaded_id in loaded:
-        entry = hass.config_entries.async_get_entry(loaded_id)
-        options.append(f"{entry.title if entry else 'unknown'} ({loaded_id})")
-    raise ServiceValidationError(
-        "Choose a commute with entry_id. Available: "
-        + (", ".join(options) if options else "none set up")
-    )
-
-
-def _key_for(
-    hass: HomeAssistant, entry_id: str, conf_key: str, product_label: str
-) -> str:
-    """Return the entry's key for a product, falling back to a shared one."""
-    entry = hass.config_entries.async_get_entry(entry_id)
-    config = {**entry.data, **entry.options} if entry else {}
-    if conf_key == CONF_API_KEY:
-        key = config.get(CONF_API_KEY)
+        candidates = [entry_id]
     else:
-        key = resolve_key(hass, conf_key, config, entry_id)
-    if not key:
-        raise ServiceValidationError(
-            f"No API key is configured for the {product_label} product. "
-            "Add it under Configure on the integration"
-        )
-    return key
+        candidates = list(loaded)
+
+    for candidate in candidates:
+        entry = hass.config_entries.async_get_entry(candidate)
+        config = {**entry.data, **entry.options} if entry else {}
+        if conf_key == CONF_API_KEY:
+            key = config.get(CONF_API_KEY)
+        else:
+            key = resolve_key(hass, conf_key, config, candidate)
+        if key:
+            return loaded[candidate].api, key
+
+    raise ServiceValidationError(
+        f"No API key is configured for the {product_label} product. "
+        "Add it under Configure on the integration"
+    )
 
 
 async def _call(request: Any) -> dict[str, Any]:
@@ -90,14 +87,12 @@ async def _call(request: Any) -> dict[str, Any]:
 def async_register_services(hass: HomeAssistant) -> None:
     """Register the raw-response actions (once, domain-wide)."""
 
-    def _api(entry_id: str) -> NationalRailAPI:
-        return hass.data[DOMAIN][entry_id].api
-
     async def _get_departure_board(call: ServiceCall) -> dict[str, Any]:
-        entry_id = _resolve_entry_id(hass, call.data.get("entry_id"))
-        key = _key_for(hass, entry_id, CONF_API_KEY, "departure board")
+        api, key = _select_client(
+            hass, call.data.get("entry_id"), CONF_API_KEY, "departure board"
+        )
         return await _call(
-            _api(entry_id).get_raw_departure_board(
+            api.get_raw_departure_board(
                 call.data["crs"],
                 key,
                 filter_crs=call.data.get("filter_crs"),
@@ -107,10 +102,11 @@ def async_register_services(hass: HomeAssistant) -> None:
         )
 
     async def _get_arrival_board(call: ServiceCall) -> dict[str, Any]:
-        entry_id = _resolve_entry_id(hass, call.data.get("entry_id"))
-        key = _key_for(hass, entry_id, CONF_ARRIVAL_API_KEY, "arrival board")
+        api, key = _select_client(
+            hass, call.data.get("entry_id"), CONF_ARRIVAL_API_KEY, "arrival board"
+        )
         return await _call(
-            _api(entry_id).get_raw_arrival_board(
+            api.get_raw_arrival_board(
                 call.data["crs"],
                 key,
                 filter_crs=call.data.get("filter_crs"),
@@ -121,11 +117,13 @@ def async_register_services(hass: HomeAssistant) -> None:
         )
 
     async def _get_service_details(call: ServiceCall) -> dict[str, Any]:
-        entry_id = _resolve_entry_id(hass, call.data.get("entry_id"))
-        key = _key_for(hass, entry_id, CONF_SERVICE_DETAILS_API_KEY, "service details")
-        return await _call(
-            _api(entry_id).get_raw_service_details(call.data["service_id"], key)
+        api, key = _select_client(
+            hass,
+            call.data.get("entry_id"),
+            CONF_SERVICE_DETAILS_API_KEY,
+            "service details",
         )
+        return await _call(api.get_raw_service_details(call.data["service_id"], key))
 
     if hass.services.has_service(DOMAIN, SERVICE_GET_DEPARTURE_BOARD):
         return
