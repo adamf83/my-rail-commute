@@ -229,7 +229,7 @@ Three read-only actions return exactly what Rail Data Marketplace sends back, us
 | `my_rail_commute.get_arrival_board` | `GetArrBoardWithDetails` | `crs`, `filter_crs` (services from this origin), `time_offset`, `time_window`, `num_rows` |
 | `my_rail_commute.get_service_details` | `GetServiceDetails` | `service_id` |
 
-Fields you leave blank are not sent, so the API's own default applies. `entry_id` (shown as **Commute**) is optional when you only have one commute; with several, pick the one whose key to use. The arrival board and service details keys are the ones from [Delay Repay keys](#delay-repay-keys-optional), and are used even if Delay Repay is switched off. A service ID only works while the service is still on the board that issued it, so use one from a board response straight away.
+Fields you leave blank are not sent, so the API's own default applies. `entry_id` (shown as **Commute**) is optional: leave it blank and the first commute that has a key for that product is used, so you can look up any station or service ID without choosing a commute. Pick one only to test that commute's own key. The arrival board and service details keys are the ones from [Delay Repay keys](#delay-repay-keys-optional), and are used even if Delay Repay is switched off. A service ID only works while the service is still on the board that issued it, so use one from a board response straight away.
 
 ```yaml
 action: my_rail_commute.get_arrival_board
