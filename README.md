@@ -219,6 +219,30 @@ data:
 
 `my_rail_commute.get_delay_repay_claims` returns the full outstanding list (the sensor attribute is capped); pass `include_handled: true` to include claimed, dismissed and expired journeys. Pass `journeys` (a list of keys) to fetch specific journeys of any status; each is returned with a `details` snapshot of the service as last seen live (platform, and calling points with scheduled and expected times). The snapshot is left out of the sensor attribute to keep it under the recorder's size limit; the attribute carries `has_details` instead.
 
+### Debugging: Raw Rail Data Responses
+
+Three read-only actions return exactly what Rail Data Marketplace sends back, using the API keys already configured, so you can check a data problem without logging in to the Rail Data Marketplace website. Run them from **Developer tools → Actions**; the JSON appears in the response panel.
+
+| Action | Rail Data operation | Fields |
+|--------|--------------------|--------|
+| `my_rail_commute.get_departure_board` | `GetDepBoardWithDetails` | `crs`, `filter_crs`, `time_window`, `num_rows` |
+| `my_rail_commute.get_arrival_board` | `GetArrBoardWithDetails` | `crs`, `filter_crs` (services from this origin), `time_offset`, `time_window`, `num_rows` |
+| `my_rail_commute.get_service_details` | `GetServiceDetails` | `service_id` |
+
+Fields you leave blank are not sent, so the API's own default applies. `entry_id` (shown as **Commute**) is optional when you only have one commute; with several, pick the one whose key to use. The arrival board and service details keys are the ones from [Delay Repay keys](#delay-repay-keys-optional), and are used even if Delay Repay is switched off. A service ID only works while the service is still on the board that issued it, so use one from a board response straight away.
+
+```yaml
+action: my_rail_commute.get_arrival_board
+data:
+  crs: RDG
+  filter_crs: PAD
+  time_offset: -10
+  time_window: 45
+response_variable: board
+```
+
+The response is the HTTP `status` and the `body` as received, with the `request` that was made (the API key is never included). An error from the API, such as a 400 for a bad station code, comes back the same way instead of failing the action, so you can see the message. These calls are not retried and count towards your Rail Data Marketplace usage.
+
 ## Prerequisites
 
 ### Rail Data Marketplace API Key
