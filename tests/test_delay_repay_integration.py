@@ -8,7 +8,10 @@ from homeassistant import data_entry_flow
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 import custom_components.my_rail_commute as integration
 from custom_components.my_rail_commute.const import (
@@ -320,6 +323,51 @@ async def test_forecast_is_confirmed_against_the_destination_board(
         assert claim["arrival"] == "23:25"
         assert claim["delay_minutes"] == 32
         assert claim["tier"] == 30
+
+
+async def test_confirmation_timer_confirms_between_coordinator_polls(
+    hass, mock_config_entry, mock_api_client, freezer
+):
+    with fake_storage():
+        coordinator = await _setup(
+            hass,
+            mock_config_entry,
+            mock_api_client,
+            freezer,
+            [late_service()],
+            **{
+                CONF_DELAY_REPAY_ENABLED: True,
+                CONF_ARRIVAL_API_KEY: "arrival-key",
+                CONF_SERVICE_DETAILS_API_KEY: "details-key",
+            },
+        )
+        assert coordinator.delay_repay.records()[0].confirmation.value == "estimated"
+
+        mock_api_client.get_arrival_board.return_value = [
+            {
+                "serviceID": "9494208LNDNBDC",
+                "serviceIdUrlSafe": "9494208LNDNBDC_",
+                "sta": "22:53",
+                "eta": "23:25",
+            }
+        ]
+        mock_api_client.get_service_details.return_value = {
+            "crs": "LBG",
+            "sta": "22:53",
+            "ata": "23:25",
+        }
+        # Stop the coordinator's scheduled refresh: only the timer may act
+        coordinator._unsub_refresh()
+        mock_api_client.get_departure_board.reset_mock()
+        freezer.move_to(NOW + timedelta(minutes=41))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+
+        mock_api_client.get_departure_board.assert_not_awaited()
+        mock_api_client.get_arrival_board.assert_awaited_once()
+        claim = hass.states.get(ENTITY_CLAIMS).attributes["claims"][0]
+        assert claim["confirmation"] == "confirmed"
+        assert claim["delay_minutes"] == 32
 
 
 async def test_keys_are_passed_to_the_api_client(
