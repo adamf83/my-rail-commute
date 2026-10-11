@@ -234,10 +234,18 @@ DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS: Final = 30
 # arrival board can look back at most two hours), at most this many times per
 # journey and this many journeys per coordinator update. Only a check that
 # reached the board and found no outcome counts as an attempt; API errors do
-# not, so an outage cannot use them up
+# not, so an outage cannot use them up. The attempt cap allows a check at
+# every peak-hour poll (every 2 minutes) across the whole window
 DELAY_REPAY_CONFIRM_WINDOW_MINUTES: Final = 120
-DELAY_REPAY_CONFIRM_MAX_ATTEMPTS: Final = 30
+DELAY_REPAY_CONFIRM_MAX_ATTEMPTS: Final = 60
 DELAY_REPAY_CONFIRM_MAX_PER_UPDATE: Final = 3
+# A timer independent of the coordinator also runs the checks, because the
+# coordinator polls only hourly overnight and could miss the whole window.
+# A journey checked less than the minimum gap ago (by either) is skipped
+DELAY_REPAY_CONFIRM_INTERVAL: Final = timedelta(minutes=5)
+DELAY_REPAY_CONFIRM_MIN_GAP: Final = timedelta(minutes=4)
+# How long after its window closes an unconfirmed journey is still reported
+DELAY_REPAY_UNCONFIRMED_REPORT_HOURS: Final = 24
 # Furthest the arrival board can look back from now, and how far ahead of the
 # scheduled arrival a lookup starts
 ARRIVAL_BOARD_MAX_LOOKBACK_MINUTES: Final = 120

@@ -17,6 +17,8 @@ Lifecycle of a record:
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 import logging
@@ -24,6 +26,7 @@ import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from ..api import AuthenticationError, NationalRailAPIError
@@ -33,11 +36,14 @@ from ..const import (
     CONF_DELAY_REPAY_THRESHOLDS,
     DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
     DEFAULT_DELAY_REPAY_THRESHOLDS,
+    DELAY_REPAY_CONFIRM_INTERVAL,
     DELAY_REPAY_CONFIRM_MAX_ATTEMPTS,
     DELAY_REPAY_CONFIRM_MAX_PER_UPDATE,
+    DELAY_REPAY_CONFIRM_MIN_GAP,
     DELAY_REPAY_CONFIRM_WINDOW_MINUTES,
     DELAY_REPAY_LIVE_GRACE_MINUTES,
     DELAY_REPAY_RETENTION_EXTRA_DAYS,
+    DELAY_REPAY_UNCONFIRMED_REPORT_HOURS,
 )
 from .confirm import ConfirmationSource
 from .models import (
@@ -81,6 +87,13 @@ class DelayRepayTracker:
         # stops until the entry is reloaded with a working key
         self._confirmation_blocked = False
         self._warned_keys: set[str] = set()
+        # Journeys whose confirmation window closed unconfirmed and were
+        # reported, so each is reported once
+        self._reported_unconfirmed: set[str] = set()
+        # When each journey was last checked, so the coordinator and the
+        # confirmation timer do not both check it in quick succession
+        self._last_checked: dict[str, datetime] = {}
+        self._confirm_lock = asyncio.Lock()
 
     # --- Observation -------------------------------------------------------
 
@@ -93,8 +106,37 @@ class DelayRepayTracker:
         for leg, origin, destination, service in _iter_services(parsed_data):
             changed |= self._observe_service(now, leg, origin, destination, service)
         changed |= await self._confirm_due(now)
+        self._report_unconfirmed(now)
         saved = await self._store.async_save_if_dirty()
         return changed or saved
+
+    async def async_confirm_pending(self, now: datetime | None = None) -> bool:
+        """Check journeys awaiting confirmation. Returns True if any changed.
+
+        Run on a timer so that confirmation does not depend on when the
+        coordinator happens to poll (hourly overnight). Journeys checked
+        recently, by this or the coordinator, are left until the gap passes.
+        """
+        now = now or dt_util.now()
+        changed = await self._confirm_due(now, min_gap=DELAY_REPAY_CONFIRM_MIN_GAP)
+        self._report_unconfirmed(now)
+        saved = await self._store.async_save_if_dirty()
+        return changed or saved
+
+    def start_confirmation_timer(
+        self, hass: HomeAssistant, on_change: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Check pending journeys every few minutes. Returns the cancel callback.
+
+        ``on_change`` is called when a check changed any record, so entities
+        can refresh without waiting for the next coordinator poll.
+        """
+
+        async def _check(now: datetime) -> None:
+            if await self.async_confirm_pending(dt_util.as_local(now)):
+                on_change()
+
+        return async_track_time_interval(hass, _check, DELAY_REPAY_CONFIRM_INTERVAL)
 
     def _observe_service(
         self,
@@ -165,14 +207,14 @@ class DelayRepayTracker:
             is_cancelled=assessment.is_cancelled,
             # A cancellation is reported as fact, not forecast
             confirmation=(
-                Confirmation.CONFIRMED if assessment.is_cancelled else Confirmation.ESTIMATED
+                Confirmation.CONFIRMED
+                if assessment.is_cancelled
+                else Confirmation.ESTIMATED
             ),
             # A cancellation is final, so it is claimable straight away rather
             # than waiting for a journey that will never run
             status=(
-                ClaimStatus.ELIGIBLE
-                if assessment.is_cancelled
-                else ClaimStatus.PENDING
+                ClaimStatus.ELIGIBLE if assessment.is_cancelled else ClaimStatus.PENDING
             ),
             live_until=live_until.isoformat(),
             first_seen=existing.first_seen if existing else now.isoformat(),
@@ -197,8 +239,13 @@ class DelayRepayTracker:
 
     # --- Confirmation ------------------------------------------------------
 
-    def _confirmation_candidates(self, now: datetime) -> list[ClaimRecord]:
-        """Return estimated journeys whose confirmation window is open."""
+    def _confirmation_candidates(
+        self, now: datetime, min_gap: timedelta | None = None
+    ) -> list[ClaimRecord]:
+        """Return estimated journeys whose confirmation window is open.
+
+        With ``min_gap``, journeys checked more recently than that are left out.
+        """
         window = timedelta(minutes=DELAY_REPAY_CONFIRM_WINDOW_MINUTES)
         due = []
         for record in self._store.values():
@@ -211,18 +258,36 @@ class DelayRepayTracker:
             ):
                 continue
             expected = datetime.fromisoformat(record.expected_arrival_at)
-            if expected <= now <= expected + window:
-                due.append(record)
+            if not expected <= now <= expected + window:
+                continue
+            last = self._last_checked.get(record.key)
+            if min_gap is not None and last is not None and now - last < min_gap:
+                continue
+            due.append(record)
         due.sort(key=lambda r: r.expected_arrival_at or "")
         return due[:DELAY_REPAY_CONFIRM_MAX_PER_UPDATE]
 
-    async def _confirm_due(self, now: datetime) -> bool:
+    async def _confirm_due(
+        self, now: datetime, min_gap: timedelta | None = None
+    ) -> bool:
         """Ask the confirmation source about journeys due for a check."""
         source = self.confirmation_source
         if source is None or self._confirmation_blocked:
             return False
+        # The coordinator and the timer can both arrive here; one at a time,
+        # so a journey is not checked twice at once
+        async with self._confirm_lock:
+            return await self._confirm_candidates(source, now, min_gap)
+
+    async def _confirm_candidates(
+        self,
+        source: ConfirmationSource,
+        now: datetime,
+        min_gap: timedelta | None,
+    ) -> bool:
         changed = False
-        for record in self._confirmation_candidates(now):
+        for record in self._confirmation_candidates(now, min_gap):
+            self._last_checked[record.key] = now
             try:
                 observation = await source.async_fetch(record)
             except AuthenticationError as err:
@@ -245,6 +310,38 @@ class DelayRepayTracker:
                 continue
             changed |= self._apply_observation(record, observation, now)
         return changed
+
+    def _report_unconfirmed(self, now: datetime) -> None:
+        """Warn once about journeys whose confirmation window closed unconfirmed.
+
+        They keep the last forecast, which may differ from the official record,
+        and the arrival board cannot look back far enough to check them again.
+        """
+        if self.confirmation_source is None:
+            return
+        window = timedelta(minutes=DELAY_REPAY_CONFIRM_WINDOW_MINUTES)
+        report_for = timedelta(hours=DELAY_REPAY_UNCONFIRMED_REPORT_HOURS)
+        for record in self._store.values():
+            if (
+                record.status not in _OUTSTANDING
+                or record.confirmation is not Confirmation.ESTIMATED
+                or record.is_cancelled
+                or record.expected_arrival_at is None
+                or record.key in self._reported_unconfirmed
+            ):
+                continue
+            closed_at = datetime.fromisoformat(record.expected_arrival_at) + window
+            if not closed_at < now <= closed_at + report_for:
+                continue
+            self._reported_unconfirmed.add(record.key)
+            _LOGGER.warning(
+                "Delay Repay journey %s could not be confirmed before its "
+                "confirmation window closed (%s checks reached the arrival "
+                "board). It stays an estimate from the live forecast, so "
+                "verify the actual arrival before claiming",
+                record.key,
+                record.confirm_attempts,
+            )
 
     def _apply_observation(
         self,
@@ -317,8 +414,7 @@ class DelayRepayTracker:
                 continue
             status = record.status
             if status is ClaimStatus.PENDING and (
-                record.is_cancelled
-                or datetime.fromisoformat(record.live_until) <= now
+                record.is_cancelled or datetime.fromisoformat(record.live_until) <= now
             ):
                 status = ClaimStatus.ELIGIBLE
             if status is ClaimStatus.ELIGIBLE and record.date < expiry_cutoff:
@@ -436,7 +532,8 @@ def _details_with_arrival(
         {
             **point,
             "expected": actual if has_time else point.get("expected"),
-            "is_cancelled": observation.is_cancelled or point.get("is_cancelled", False),
+            "is_cancelled": observation.is_cancelled
+            or point.get("is_cancelled", False),
         }
         if str(point.get("crs", "")).upper() == destination
         else point

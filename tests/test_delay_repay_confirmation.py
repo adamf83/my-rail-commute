@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import logging
 
 import pytest
 
@@ -13,6 +14,7 @@ from custom_components.my_rail_commute.api import (
 from custom_components.my_rail_commute.const import (
     DELAY_REPAY_CONFIRM_MAX_ATTEMPTS,
     DELAY_REPAY_CONFIRM_MAX_PER_UPDATE,
+    DELAY_REPAY_CONFIRM_MIN_GAP,
     DELAY_REPAY_CONFIRM_WINDOW_MINUTES,
 )
 from custom_components.my_rail_commute.delay_repay.models import (
@@ -291,3 +293,96 @@ async def test_confirmation_updates_the_destination_calling_point():
         assert ecr["expected"] == "23:02"  # other stops are left alone
         assert lbg["expected"] == "23:25"
         assert lbg["scheduled"] == "22:55"
+
+
+async def test_pending_check_confirms_without_a_coordinator_poll():
+    with fake_storage():
+        source = FakeSource(ArrivalObservation(actual="23:25"))
+        tracker, _ = await _tracker_with(source)
+        assert await tracker.async_confirm_pending(EXPECTED) is True
+        (record,) = tracker.records()
+        assert record.confirmation is Confirmation.CONFIRMED
+        assert record.delay_minutes == 32
+
+
+async def test_pending_check_does_nothing_before_the_expected_arrival():
+    with fake_storage():
+        source = FakeSource()
+        tracker, _ = await _tracker_with(source)
+        assert (
+            await tracker.async_confirm_pending(EXPECTED - timedelta(minutes=1))
+            is False
+        )
+        assert source.calls == []
+
+
+async def test_pending_checks_respect_the_minimum_gap():
+    with fake_storage():
+        source = FakeSource()
+        tracker, _ = await _tracker_with(source)
+        await tracker.async_confirm_pending(EXPECTED)
+        await tracker.async_confirm_pending(EXPECTED + timedelta(minutes=1))
+        assert len(source.calls) == 1
+        await tracker.async_confirm_pending(EXPECTED + DELAY_REPAY_CONFIRM_MIN_GAP)
+        assert len(source.calls) == 2
+
+
+async def test_a_coordinator_check_counts_towards_the_gap():
+    with fake_storage():
+        source = FakeSource()
+        tracker, _ = await _tracker_with(source)
+        await tracker.async_observe(single_leg([]), EXPECTED)
+        await tracker.async_confirm_pending(EXPECTED + timedelta(minutes=1))
+        assert len(source.calls) == 1
+
+
+async def test_unconfirmed_journey_is_reported_once_when_its_window_closes(caplog):
+    with fake_storage():
+        source = FakeSource()
+        tracker, _ = await _tracker_with(source)
+        window = timedelta(minutes=DELAY_REPAY_CONFIRM_WINDOW_MINUTES)
+        with caplog.at_level(logging.WARNING):
+            await tracker.async_confirm_pending(EXPECTED + window)
+            assert "could not be confirmed" not in caplog.text
+            await tracker.async_confirm_pending(
+                EXPECTED + window + timedelta(minutes=1)
+            )
+            await tracker.async_confirm_pending(
+                EXPECTED + window + timedelta(minutes=9)
+            )
+        assert caplog.text.count("could not be confirmed") == 1
+        assert KEY in caplog.text
+
+
+async def test_unconfirmed_report_also_comes_from_the_coordinator_path(caplog):
+    with fake_storage():
+        tracker, _ = await _tracker_with(FakeSource())
+        late = EXPECTED + timedelta(minutes=DELAY_REPAY_CONFIRM_WINDOW_MINUTES + 1)
+        with caplog.at_level(logging.WARNING):
+            await tracker.async_observe(single_leg([]), late)
+        assert caplog.text.count("could not be confirmed") == 1
+
+
+async def test_confirmed_or_sourceless_journeys_are_not_reported(caplog):
+    late = EXPECTED + timedelta(minutes=DELAY_REPAY_CONFIRM_WINDOW_MINUTES + 1)
+    with fake_storage():
+        source = FakeSource(ArrivalObservation(actual="23:25"))
+        tracker, _ = await _tracker_with(source)
+        await tracker.async_confirm_pending(EXPECTED)
+        with caplog.at_level(logging.WARNING):
+            await tracker.async_confirm_pending(late)
+        assert "could not be confirmed" not in caplog.text
+    with fake_storage():
+        tracker, _ = await _tracker_with(None)
+        with caplog.at_level(logging.WARNING):
+            await tracker.async_confirm_pending(late)
+        assert "could not be confirmed" not in caplog.text
+
+
+async def test_long_closed_windows_are_not_reported_again_after_a_restart(caplog):
+    with fake_storage():
+        tracker, _ = await _tracker_with(FakeSource())
+        much_later = EXPECTED + timedelta(days=3)
+        with caplog.at_level(logging.WARNING):
+            await tracker.async_confirm_pending(much_later)
+        assert "could not be confirmed" not in caplog.text

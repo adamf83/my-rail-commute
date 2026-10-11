@@ -103,6 +103,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 coordinator.delay_repay.confirmation_source = DestinationBoardSource(
                     api
                 )
+                # Confirm on a timer too: the coordinator polls only hourly
+                # overnight, which can miss a late train's whole window
+                entry.async_on_unload(
+                    coordinator.delay_repay.start_confirmation_timer(
+                        hass, coordinator.async_update_listeners
+                    )
+                )
                 if not details_key:
                     _LOGGER.warning(
                         "Delay Repay has no service details API key, so actual "
