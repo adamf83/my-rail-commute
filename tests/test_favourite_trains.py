@@ -106,6 +106,27 @@ def test_upcoming_and_cancelled() -> None:
     )
 
 
+def test_upcoming_carries_popup_details() -> None:
+    service = _service("08:15", delay=4)
+    service.update(
+        {
+            "status": "delayed",
+            "service_type": "train",
+            "scheduled_arrival": "08:58",
+            "estimated_arrival": "09:02",
+            "calling_points": ["Purley", "London Bridge"],
+            "delay_reason": "A speed restriction",
+        }
+    )
+    entry = _state("08:15", [service])
+    assert entry["scheduled_arrival"] == "08:58"
+    assert entry["estimated_arrival"] == "09:02"
+    assert entry["calling_points"] == ["Purley", "London Bridge"]
+    assert entry["delay_reason"] == "A speed restriction"
+    assert entry["status"] == "delayed"
+    assert entry["service_type"] == "train"
+
+
 def test_scheduled_outside_window_and_not_running_inside() -> None:
     assert _state("10:00", [])["state"] == FAVOURITE_STATE_SCHEDULED
     assert _state("08:30", [])["state"] == FAVOURITE_STATE_NOT_RUNNING
