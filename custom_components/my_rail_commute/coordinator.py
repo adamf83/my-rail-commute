@@ -14,6 +14,8 @@ from homeassistant.util import dt as dt_util
 
 from .api import NationalRailAPI, NationalRailAPIError
 from .const import (
+    CONF_FAVOURITE_TRAINS,
+    FAVOURITE_BOARD_MIN_ROWS,
     CONF_ALL_DEPARTURES,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
@@ -56,6 +58,7 @@ from .const import (
     UPDATE_INTERVAL_OFF_PEAK,
     UPDATE_INTERVAL_PEAK,
 )
+from .favourites import build_favourite_states, parse_favourite_trains
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -191,6 +194,19 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             self.major_delay_threshold = DEFAULT_MAJOR_DELAY_THRESHOLD
             self.minor_delay_threshold = DEFAULT_MINOR_DELAY_THRESHOLD
 
+        # Favourite trains (HH:MM, first leg only). Invalid stored values are
+        # ignored; the options flow validates input.
+        try:
+            self.favourite_trains: list[str] = parse_favourite_trains(
+                config.get(CONF_FAVOURITE_TRAINS)
+            )
+        except ValueError:
+            _LOGGER.warning("Ignoring invalid favourite trains setting")
+            self.favourite_trains = []
+
+        # Favourite trains store — attached externally by async_setup_entry
+        self.favourites_store: Any | None = None
+
         # Station names (will be populated on first update)
         self.origin_name: str | None = None
         self.destination_name: str | None = None
@@ -287,13 +303,17 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                     if self.only_catchable_services
                     else self.num_services
                 )
-                for leg in self.legs:
+                for leg_index, leg in enumerate(self.legs):
                     raw_leg_data.append(
                         await self.api.get_departure_board(
                             leg["origin"],
                             destination_crs=leg["destination"],
                             time_window=self.time_window,
-                            num_rows=leg_num_rows,
+                            num_rows=(
+                                max(leg_num_rows, FAVOURITE_BOARD_MIN_ROWS)
+                                if leg_index == 0 and self.favourite_trains
+                                else leg_num_rows
+                            ),
                         )
                     )
 
@@ -303,6 +323,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
                 parsed_data = self._parse_data(raw_leg_data)
+                await self._apply_favourites(
+                    raw_leg_data[0].get("services", []), parsed_data
+                )
             else:
                 # When showing all departures, fetch enough rows to populate multiple destinations
                 num_rows = (
@@ -310,6 +333,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                     if self.all_departures
                     else self.num_services
                 )
+                if self.favourite_trains:
+                    num_rows = max(num_rows, FAVOURITE_BOARD_MIN_ROWS)
 
                 # Fetch departure board
                 data = await self.api.get_departure_board(
@@ -325,6 +350,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
 
                 # Parse and enrich data
                 parsed_data = self._parse_data(data)
+                await self._apply_favourites(data.get("services", []), parsed_data)
 
             # Record observation in historical stats store
             if self.stats_store is not None:
@@ -396,6 +422,28 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 return self.data
 
             raise UpdateFailed(f"Failed to fetch data: {err}") from err
+
+    async def _apply_favourites(
+        self, raw_services: list[dict[str, Any]], parsed_data: dict[str, Any]
+    ) -> None:
+        """Add favourite_trains to the parsed data.
+
+        Matches against the unfiltered first-leg board, before departed
+        trains are filtered out, so a favourite stays visible after it leaves.
+        """
+        if not self.favourite_trains:
+            return
+        now = dt_util.now()
+        favourites, persist, seen = build_favourite_states(
+            self.favourite_trains,
+            raw_services,
+            self.favourites_store,
+            now.hour * 60 + now.minute,
+            self.time_window,
+        )
+        if self.favourites_store is not None:
+            await self.favourites_store.async_update(persist, seen)
+        parsed_data["favourite_trains"] = favourites
 
     @staticmethod
     def _minutes_between(start: str | None, end: str | None) -> int | None:

@@ -17,6 +17,7 @@ from .const import (
     CONF_ARRIVAL_API_KEY,
     CONF_DELAY_REPAY_ENABLED,
     CONF_DESTINATION,
+    CONF_FAVOURITE_TRAINS,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ORIGIN,
@@ -32,6 +33,7 @@ from .debug_services import (
 from .delay_repay.confirm import DestinationBoardSource
 from .delay_repay.services import async_register_services, async_remove_services
 from .delay_repay.tracker import async_create_tracker
+from .favourites import FavouriteTrainsStore, favourite_slug, parse_favourite_trains
 from .keys import resolve_key
 from .statistics import CommuteStatisticsStore
 
@@ -97,6 +99,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         stats_store = CommuteStatisticsStore(hass, entry.entry_id)
         await stats_store.async_load()
         coordinator.stats_store = stats_store
+
+        # Favourite trains: remember each one's last result for "departed"
+        if coordinator.favourite_trains:
+            favourites_store = FavouriteTrainsStore(hass, entry.entry_id)
+            await favourites_store.async_load()
+            coordinator.favourites_store = favourites_store
 
         # Opt-in Delay Repay claim tracking
         if config.get(CONF_DELAY_REPAY_ENABLED, False):
@@ -243,6 +251,25 @@ async def async_cleanup_stale_entities(hass: HomeAssistant, entry: ConfigEntry) 
                     entity.entity_id,
                     train_number,
                 )
+
+    # Favourite sensors whose time is no longer in the options
+    try:
+        wanted = {
+            f"{entry.entry_id}_favourite_{favourite_slug(t)}"
+            for t in parse_favourite_trains(config.get(CONF_FAVOURITE_TRAINS))
+        }
+    except ValueError:
+        wanted = set()
+    favourite_prefix = f"{entry.entry_id}_favourite_"
+    favourites_to_remove = [
+        entity.entity_id
+        for entity in er.async_entries_for_config_entry(entity_reg, entry.entry_id)
+        if entity.unique_id.startswith(favourite_prefix)
+        and entity.unique_id not in wanted
+    ]
+    for entity_id in favourites_to_remove:
+        _LOGGER.info("Removing stale favourite entity: %s", entity_id)
+        entity_reg.async_remove(entity_id)
 
     # Remove stale entities
     for entity_id, train_number in entities_to_remove:

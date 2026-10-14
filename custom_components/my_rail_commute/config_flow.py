@@ -33,6 +33,7 @@ from .const import (
     CONF_DELAY_REPAY_THRESHOLDS,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
+    CONF_FAVOURITE_TRAINS,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
     CONF_LEG_DESTINATION,
@@ -76,6 +77,7 @@ from .const import (
 )
 from .coordinator import build_route_id
 from .delay_repay.schemes import build_scheme_set
+from .favourites import parse_favourite_trains
 from .keys import find_shared_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -1099,6 +1101,13 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                     errors["base"] = "invalid_delay_repay_schemes"
                     _LOGGER.error("Invalid Delay Repay schemes: %s", err)
 
+            # Validate favourite trains (comma-separated HH:MM times)
+            try:
+                parse_favourite_trains(user_input.get(CONF_FAVOURITE_TRAINS))
+            except ValueError as err:
+                errors["base"] = "invalid_favourite_trains"
+                _LOGGER.error("Invalid favourite trains: %s", err)
+
             # Validate any newly entered arrival board / service details key
             if not errors and user_input.get(CONF_DELAY_REPAY_ENABLED):
                 errors.update(
@@ -1268,6 +1277,13 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 mode=selector.NumberSelectorMode.BOX,
             ),
         )
+
+        schema_dict[
+            vol.Optional(
+                CONF_FAVOURITE_TRAINS,
+                default=options.get(CONF_FAVOURITE_TRAINS, ""),
+            )
+        ] = selector.TextSelector()
 
         for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
             schema_dict[
