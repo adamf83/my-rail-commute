@@ -181,6 +181,27 @@ USER_AGENT: Final = f"{DOMAIN}/1.0.0"
 STORAGE_VERSION: Final = 1
 STATS_RETENTION_DAYS: Final = 90
 
+# Favourite trains: daily-repeating departure times tracked on the first leg
+CONF_FAVOURITE_TRAINS: Final = "favourite_trains"
+MAX_FAVOURITE_TRAINS: Final = 10
+FAVOURITES_STORAGE_VERSION: Final = 1
+
+FAVOURITE_STATE_UPCOMING: Final = "upcoming"
+FAVOURITE_STATE_DEPARTED: Final = "departed"
+FAVOURITE_STATE_CANCELLED: Final = "cancelled"
+FAVOURITE_STATE_SCHEDULED: Final = "scheduled"
+FAVOURITE_STATE_NOT_RUNNING: Final = "not_running"
+FAVOURITE_STATES: Final = [
+    FAVOURITE_STATE_UPCOMING,
+    FAVOURITE_STATE_DEPARTED,
+    FAVOURITE_STATE_CANCELLED,
+    FAVOURITE_STATE_SCHEDULED,
+    FAVOURITE_STATE_NOT_RUNNING,
+]
+# Rows requested from the board when favourites are set, so a favourite is
+# not cut off by a low num_services setting
+FAVOURITE_BOARD_MIN_ROWS: Final = 20
+
 # Attribute names for historical sensors
 ATTR_ON_TIME_PCT_TODAY: Final = "on_time_pct_today"
 ATTR_ON_TIME_PCT_7D: Final = "on_time_pct_7day"

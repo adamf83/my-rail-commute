@@ -174,6 +174,24 @@ Southern = 30,60,120 | https://example.com/where-to-claim
 
 Journeys expire from the list after the claim window (28 days by default).
 
+### 9. Favourite Train Sensors (opt-in)
+
+Keep an eye on the same train every day, such as your usual 08:15, even after it has left the departure board. Favourites are set in the options, not through actions: go to **Settings** → **Devices & Services** → **Configure** and enter the departure times you care about in **Favourite trains**, separated by commas (for example `07:42, 08:15`, up to 10). Times are 24-hour `HH:MM` and match each train's *scheduled* departure from your origin station. They repeat every day.
+
+- **Favourite HH:MM** (`sensor.{commute_name}_favourite_hh_mm`): one sensor per favourite. The state is one of:
+  - `upcoming`: on the board and due to depart (the `delay_minutes` and `expected_departure` attributes show the live delay)
+  - `departed`: seen earlier today and now gone. It keeps the last known delay, and survives Home Assistant restarts
+  - `cancelled`: reported as cancelled
+  - `scheduled`: later than the time window, so not on the board yet
+  - `not_running`: inside the window or already past, but not on today's board and not seen earlier today
+- **Summary sensor `favourite_trains` attribute**: lists every favourite with its live state, so a dashboard card can read them from the summary sensor alone. It only appears when favourites are set.
+
+Departed results reset on the first update of each new day. Removing a time from the options removes its sensor. With a favourite set, the integration asks for a longer departure board (at least 20 rows) so a favourite is not cut off by a low *Number of Services* setting; the sensors and attributes for your tracked trains are unchanged.
+
+**Multi-leg commutes:** favourites apply to the first leg only.
+
+Pair it with the `my-rail-commute-favourites-card` in the [Lovelace card](https://github.com/adamf83/lovelace-my-rail-commute-card) to show them on a dashboard.
+
 ## Actions
 
 The integration provides several actions (callable via **Developer Tools → Actions** or automations):
@@ -344,6 +362,7 @@ All three delay thresholds are fully customizable. Validation ensures the hierar
    - Major Delays Threshold
    - Minor Delays Threshold
    - Night-time updates
+   - Favourite trains (daily departure times to keep track of)
 
 **Note**: When you update your configuration, any old threshold settings will automatically migrate to the new format.
 

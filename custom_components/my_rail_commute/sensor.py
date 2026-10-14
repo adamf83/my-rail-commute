@@ -6,7 +6,11 @@ import json
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -72,6 +76,7 @@ from .const import (
     CONF_NUM_SERVICES,
     DELAY_REPAY_MAX_ATTRIBUTE_CLAIMS,
     DOMAIN,
+    FAVOURITE_STATES,
     STATUS_CONNECTION_DELAYED,
     STATUS_CONNECTION_MISSED,
     STATUS_CONNECTION_OK,
@@ -85,6 +90,7 @@ from .const import (
 from .coordinator import NationalRailDataUpdateCoordinator, build_route_id
 from .delay_repay.models import ClaimStatus
 from .delay_repay.services import claim_to_dict
+from .favourites import favourite_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -201,6 +207,10 @@ async def async_setup_entry(
         # Create individual train sensors dynamically based on configuration
         for train_number in range(1, num_trains + 1):
             entities.append(TrainSensor(coordinator, entry, train_number))
+
+    # Favourite trains (first leg only), one sensor per favourite time
+    for departure in coordinator.favourite_trains:
+        entities.append(FavouriteTrainSensor(coordinator, entry, departure))
 
     # Historical performance sensors
     entities.append(HistoricalReliabilitySensor(coordinator, entry))
@@ -372,6 +382,10 @@ class CommuteSummarySensor(NationalRailCommuteEntity, SensorEntity):
         if data.get("multi_destination"):
             attrs["multi_destination"] = True
             attrs["services_by_destination"] = data.get("services_by_destination", {})
+
+        # Additive: only present when favourites are configured
+        if data.get("favourite_trains"):
+            attrs["favourite_trains"] = data["favourite_trains"]
 
         if data.get("is_multi_leg"):
             attrs[ATTR_IS_MULTI_LEG] = True
@@ -1250,6 +1264,58 @@ class LegNextTrainSensor(NextTrainSensor):
         if len(legs) < self._leg_index:
             return []
         return legs[self._leg_index - 1].get("services", [])
+
+
+class FavouriteTrainSensor(NationalRailCommuteEntity, SensorEntity):
+    """Sensor tracking one favourite daily departure time."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = FAVOURITE_STATES
+
+    def __init__(
+        self,
+        coordinator: NationalRailDataUpdateCoordinator,
+        entry: ConfigEntry,
+        departure: str,
+    ) -> None:
+        """Initialize the favourite train sensor.
+
+        Args:
+            coordinator: Data coordinator
+            entry: Config entry
+            departure: Favourite scheduled departure time, HH:MM
+        """
+        super().__init__(coordinator, entry)
+
+        self._departure = departure
+        self._attr_name = f"Favourite {departure}"
+        self._attr_unique_id = f"{entry.entry_id}_favourite_{favourite_slug(departure)}"
+        self._attr_icon = "mdi:star"
+
+    def _get_favourite(self) -> dict[str, Any] | None:
+        """Return this favourite's entry from the coordinator data."""
+        if not self.coordinator.data:
+            return None
+        for favourite in self.coordinator.data.get("favourite_trains", []):
+            if favourite.get("scheduled_departure") == self._departure:
+                return favourite
+        return None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the favourite's state."""
+        favourite = self._get_favourite()
+        return favourite["state"] if favourite else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the favourite's details."""
+        favourite = self._get_favourite()
+        if favourite is None:
+            return {ATTR_SCHEDULED_DEPARTURE: self._departure}
+        attrs = {k: v for k, v in favourite.items() if k != "state"}
+        attrs["last_updated"] = self.coordinator.data.get("last_updated")
+        return attrs
 
 
 class HistoricalReliabilitySensor(NationalRailCommuteEntity, SensorEntity):
