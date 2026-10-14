@@ -147,6 +147,13 @@ def build_favourite_states(
                     "is_cancelled": service.get("is_cancelled", False),
                     "destination": service.get("destination"),
                     "service_id": service.get("service_id"),
+                    "status": service.get("status"),
+                    "service_type": service.get("service_type", "train"),
+                    "scheduled_arrival": service.get("scheduled_arrival"),
+                    "estimated_arrival": service.get("estimated_arrival"),
+                    "calling_points": service.get("calling_points", []),
+                    "delay_reason": service.get("delay_reason"),
+                    "cancellation_reason": service.get("cancellation_reason"),
                 }
             )
             entry["state"] = (

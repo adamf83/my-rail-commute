@@ -184,7 +184,7 @@ Keep an eye on the same train every day, such as your usual 08:15, even after it
   - `cancelled`: reported as cancelled
   - `scheduled`: later than the time window, so not on the board yet
   - `not_running`: inside the window or already past, but not on today's board and not seen earlier today
-- **Summary sensor `favourite_trains` attribute**: lists every favourite with its live state, so a dashboard card can read them from the summary sensor alone. It only appears when favourites are set.
+- **Summary sensor `favourite_trains` attribute**: lists every favourite with its live state (plus platform, operator, arrival times, calling points, status and any delay or cancellation reason), so a dashboard card can read them from the summary sensor alone. It only appears when favourites are set.
 
 Departed results reset on the first update of each new day. Removing a time from the options removes its sensor. With a favourite set, the integration asks for a longer departure board (at least 20 rows) so a favourite is not cut off by a low *Number of Services* setting; the sensors and attributes for your tracked trains are unchanged.
 
