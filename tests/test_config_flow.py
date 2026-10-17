@@ -30,6 +30,7 @@ from custom_components.my_rail_commute.const import (
     CONF_DELAY_REPAY_OPERATORS,
     CONF_DELAY_REPAY_THRESHOLDS,
     CONF_DESTINATION,
+    CONF_FAVOURITE_TRAINS,
     CONF_MAJOR_DELAY_THRESHOLD,
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
@@ -447,6 +448,33 @@ class TestConfigFlow:
         assert result["step_id"] == "settings"
         keys = {str(k) for k in result["data_schema"].schema}
         assert CONF_DELAY_REPAY_ENABLED in keys
+
+    async def test_settings_step_offers_favourite_trains(self, hass: HomeAssistant):
+        """The setup settings form includes the favourite trains field."""
+        result = await self._complete_flow_to_settings(hass, None)
+        keys = {str(k) for k in result["data_schema"].schema}
+        assert CONF_FAVOURITE_TRAINS in keys
+
+    async def test_favourite_trains_at_setup_are_stored(self, hass: HomeAssistant):
+        """Favourite trains entered during setup are saved on the entry."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(
+            hass, result["flow_id"], **{CONF_FAVOURITE_TRAINS: " 07:42, 08:15 "}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_FAVOURITE_TRAINS] == "07:42, 08:15"
+
+    async def test_favourite_trains_rejected_when_invalid(self, hass: HomeAssistant):
+        """Invalid favourite trains keep the user on the settings step."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(
+            hass, result["flow_id"], **{CONF_FAVOURITE_TRAINS: "not a time"}
+        )
+        assert result["step_id"] == "settings"
+        assert result["errors"] == {"base": "invalid_favourite_trains"}
 
     async def test_delay_repay_enabled_at_setup_is_stored(self, hass: HomeAssistant):
         """Enabling Delay Repay during setup is saved on the entry."""

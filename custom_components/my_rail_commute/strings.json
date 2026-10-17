@@ -37,9 +37,13 @@
           "minor_delay_threshold": "Minor Delays Threshold (minutes)",
           "night_updates": "Enable Night-Time Updates",
           "departed_train_grace_period": "Departed Train Grace Period (minutes)",
+          "favourite_trains": "Favourite trains (departure times, comma separated)",
           "delay_repay_enabled": "Track Delay Repay claims",
           "min_connection_time": "Minimum Connection Time (minutes)",
           "only_catchable_services": "Only Show Catchable Services (hide trains you can't make the connection for)"
+        },
+        "data_description": {
+          "favourite_trains": "Optional. Daily departure times from your origin station to keep an eye on, e.g. '07:42, 08:15'. Each gets its own sensor, which stays visible after the train has left. Multi-leg journeys use the first leg only."
         }
       },
       "delay_repay": {
@@ -76,6 +80,7 @@
       "same_station": "Origin and destination stations must be different.",
       "same_as_destination": "This is already your final destination — continue instead of adding it as a connecting leg.",
       "invalid_thresholds": "Delay thresholds must maintain hierarchy: Severe >= Major >= Minor >= 1 minute.",
+      "invalid_favourite_trains": "Favourite trains must be 24-hour HH:MM times separated by commas, with at most 10 entries (e.g. 07:42, 08:15).",
       "invalid_delay_repay_schemes": "Delay Repay thresholds or operator overrides are not valid. Thresholds are whole minutes (1 to 1440); overrides use 'Operator = 15,30,60' with an optional claim link after a '|'.",
       "unknown": "An unexpected error occurred. Please try again.",
       "invalid_arrival_auth": "The Arrival Board API key was rejected. Check you subscribed to the Live Arrival Board product and copied that product's key (it differs from the departure board key).",
