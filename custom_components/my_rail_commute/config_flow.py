@@ -290,6 +290,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._departed_train_grace_period: int | None = None
         self._min_connection_time: int | None = None
         self._only_catchable_services: bool = False
+        self._favourite_trains: str = ""
         self._delay_repay_enabled: bool = False
         self._delay_repay_settings: dict[str, Any] = {}
         self._nearby_stations: list[tuple[float, dict]] | None = None
@@ -635,6 +636,13 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_thresholds"
                 _LOGGER.error("Invalid delay thresholds: %s", err)
 
+            # Validate favourite trains (comma-separated HH:MM times)
+            try:
+                parse_favourite_trains(user_input.get(CONF_FAVOURITE_TRAINS))
+            except ValueError as err:
+                errors["base"] = "invalid_favourite_trains"
+                _LOGGER.error("Invalid favourite trains: %s", err)
+
             if not errors:
                 # Store settings in instance variables
                 if self._all_departures:
@@ -651,6 +659,9 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._departed_train_grace_period = user_input.get(
                     CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
                 )
+                self._favourite_trains = (
+                    user_input.get(CONF_FAVOURITE_TRAINS) or ""
+                ).strip()
                 self._delay_repay_enabled = bool(
                     user_input.get(CONF_DELAY_REPAY_ENABLED, False)
                 )
@@ -761,6 +772,10 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
             ),
         }
+
+        schema_dict[vol.Optional(CONF_FAVOURITE_TRAINS, default="")] = (
+            selector.TextSelector()
+        )
 
         # Delay Repay needs a destination to judge arrival delays against
         if not self._all_departures:
@@ -1015,6 +1030,8 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_MINOR_DELAY_THRESHOLD: self._minor_delay_threshold,
             CONF_DEPARTED_TRAIN_GRACE_PERIOD: self._departed_train_grace_period,
         }
+        if self._favourite_trains:
+            data[CONF_FAVOURITE_TRAINS] = self._favourite_trains
         if self._delay_repay_enabled:
             data[CONF_DELAY_REPAY_ENABLED] = True
             data.update(self._delay_repay_settings)
