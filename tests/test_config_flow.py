@@ -35,6 +35,7 @@ from custom_components.my_rail_commute.const import (
     CONF_MINOR_DELAY_THRESHOLD,
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
+    CONF_OPERATOR_FILTER,
     CONF_ORIGIN,
     CONF_SERVICE_DETAILS_API_KEY,
     CONF_SEVERE_DELAY_THRESHOLD,
@@ -467,6 +468,37 @@ class TestConfigFlow:
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
         assert result["data"][CONF_FAVOURITE_TRAINS] == "07:42, 08:15"
 
+    async def test_settings_step_offers_operator_dropdown(self, hass: HomeAssistant):
+        """The setup form has a multi-select operator dropdown."""
+        result = await self._complete_flow_to_settings(hass, None)
+        schema = result["data_schema"].schema
+        key = next(k for k in schema if str(k) == CONF_OPERATOR_FILTER)
+        config = schema[key].config
+        assert config["multiple"] is True
+        assert config["mode"] == "dropdown"
+        assert {"value": "GW", "label": "Great Western Railway (GW)"} in config["options"]
+
+    async def test_operator_filter_at_setup_is_stored(self, hass: HomeAssistant):
+        """Operators chosen during setup are saved on the entry."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(
+            hass, result["flow_id"], **{CONF_OPERATOR_FILTER: ["SW", "GW"]}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_OPERATOR_FILTER] == ["GW", "SW"]
+
+    async def test_no_operator_filter_leaves_key_unset(self, hass: HomeAssistant):
+        """Choosing nothing keeps the entry free of the key."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(hass, result["flow_id"])
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: False}
+        )
+        assert CONF_OPERATOR_FILTER not in result["data"]
+
     async def test_favourite_trains_rejected_when_invalid(self, hass: HomeAssistant):
         """Invalid favourite trains keep the user on the settings step."""
         result = await self._complete_flow_to_settings(hass, None)
@@ -731,6 +763,22 @@ class TestConfigFlow:
         assert reverse[CONF_DELAY_REPAY_ENABLED] is True
         assert reverse[CONF_DELAY_REPAY_THRESHOLDS] == "30,60"
         assert reverse[CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS] == 14
+
+    async def test_return_journey_inherits_operator_filter(self, hass: HomeAssistant):
+        """The reverse commute copies the operator filter."""
+        result = await self._complete_flow_to_settings(hass, None)
+        result = await self._submit_settings(
+            hass, result["flow_id"], **{CONF_OPERATOR_FILTER: ["GW"]}
+        )
+        with patch.object(
+            hass.config_entries.flow,
+            "async_init",
+            wraps=hass.config_entries.flow.async_init,
+        ) as mock_init:
+            await hass.config_entries.flow.async_configure(
+                result["flow_id"], user_input={CONF_ADD_RETURN_JOURNEY: True}
+            )
+        assert mock_init.call_args.kwargs["data"][CONF_OPERATOR_FILTER] == ["GW"]
 
     async def test_return_journey_step_offered_when_reverse_missing(
         self, hass: HomeAssistant

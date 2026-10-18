@@ -223,3 +223,14 @@ async def test_options_flow_offers_and_saves_operator_filter(
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_OPERATOR_FILTER] == ["GW", "SW"]
+
+
+async def test_options_flow_uses_a_dropdown(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    mock_config_entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    schema = result["data_schema"].schema
+    key = next(k for k in schema if str(k) == CONF_OPERATOR_FILTER)
+    assert schema[key].config["mode"] == "dropdown"
+    assert schema[key].config["multiple"] is True

@@ -194,12 +194,13 @@ Pair it with the `my-rail-commute-favourites-card` in the [Lovelace card](https:
 
 ### Operator filter (opt-in)
 
-Only want trains from certain operators, such as your direct service rather than the stopping one? Go to **Settings** → **Devices & Services** → **Configure** and tick the operators you want under **Train operators to show**. Trains from every other operator are hidden from that commute's sensors, summary and statistics. Leave all unticked to show every operator.
+Only want trains from certain operators, such as your direct service rather than the stopping one? Go to **Settings** → **Devices & Services** → **Configure** and pick the operators you want in the **Train operators to show** dropdown (also offered when you first set up a commute). Trains from every other operator are hidden from that commute's sensors, summary and statistics. Leave it empty to show every operator.
 
 - The filter applies to every leg of a multi-leg journey, and connections are worked out from the filtered trains only.
 - Operators seen on the live board are added to the list automatically, so new or unusual operators can still be chosen.
 - Any service without an operator code (some rail-replacement buses) is hidden while a filter is set.
 - Favourite trains are not filtered.
+- The return journey created at setup gets the same filter.
 - The summary sensor's `operator_filter` attribute lists the active codes, and each train sensor has an `operator_code` attribute.
 
 ## Actions
