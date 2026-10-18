@@ -393,6 +393,7 @@ async def test_single_leg_output_shape_unchanged(hass: HomeAssistant) -> None:
         "last_updated",
         "next_update",
         "nrcc_messages",
+        "operator_filter",
     }
     assert set(data.keys()) == expected_keys
     assert "is_multi_leg" not in data
