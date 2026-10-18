@@ -7,7 +7,6 @@ from unittest.mock import patch
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
-
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.my_rail_commute.const import (
@@ -32,6 +31,12 @@ from custom_components.my_rail_commute.const import (
     DOMAIN,
 )
 
+from .config_flow_helpers import (
+    open_options_page,
+    submit_options,
+    submit_setup_settings,
+)
+
 
 async def _start_flow(hass: HomeAssistant):
     """Start the flow and submit a valid API key."""
@@ -48,9 +53,10 @@ async def _start_flow(hass: HomeAssistant):
 
 async def _submit_settings(hass: HomeAssistant, flow_id: str):
     """Submit the settings step with default values."""
-    return await hass.config_entries.flow.async_configure(
+    return await submit_setup_settings(
+        hass,
         flow_id,
-        user_input={
+        {
             CONF_COMMUTE_NAME: "Test Journey",
             CONF_TIME_WINDOW: 60,
             CONF_NUM_SERVICES: 3,
@@ -433,9 +439,10 @@ class TestMinConnectionTimeField:
         schema_mapping = result["data_schema"].schema
         assert any(str(key) == CONF_MIN_CONNECTION_TIME for key in schema_mapping)
 
-        result = await hass.config_entries.flow.async_configure(
+        result = await submit_setup_settings(
+            hass,
             result["flow_id"],
-            user_input={
+            {
                 CONF_COMMUTE_NAME: "Test Journey",
                 CONF_TIME_WINDOW: 60,
                 CONF_NUM_SERVICES: 3,
@@ -534,6 +541,7 @@ class TestMinConnectionTimeOptionsFlow:
         entry.add_to_hass(hass)
 
         result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await open_options_page(hass, result["flow_id"], "trains")
 
         schema_mapping = result["data_schema"].schema
         assert any(str(key) == CONF_MIN_CONNECTION_TIME for key in schema_mapping)
@@ -544,7 +552,8 @@ class TestMinConnectionTimeOptionsFlow:
         entry.add_to_hass(hass)
 
         result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
+        result = await submit_options(
+            hass,
             result["flow_id"],
             user_input={
                 CONF_TIME_WINDOW: 60,
@@ -569,6 +578,7 @@ class TestMinConnectionTimeOptionsFlow:
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
+        result = await open_options_page(hass, result["flow_id"], "trains")
 
         schema_mapping = result["data_schema"].schema
         assert not any(

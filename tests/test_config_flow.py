@@ -46,6 +46,12 @@ from custom_components.my_rail_commute.const import (
     DOMAIN,
 )
 
+from .config_flow_helpers import (
+    open_options_page,
+    submit_options,
+    submit_setup_settings,
+)
+
 
 class TestValidateAPIKey:
     """Tests for API key validation function."""
@@ -361,9 +367,10 @@ class TestConfigFlow:
         )
 
         # Step 4: Settings
-        result = await hass.config_entries.flow.async_configure(
+        result = await submit_setup_settings(
+            hass,
             result["flow_id"],
-            user_input={
+            {
                 CONF_COMMUTE_NAME: "Morning Commute",
                 CONF_TIME_WINDOW: 60,
                 CONF_NUM_SERVICES: 3,
@@ -429,9 +436,10 @@ class TestConfigFlow:
 
     async def _submit_settings(self, hass, flow_id, **extra):
         """Helper: submit default settings and return the result."""
-        return await hass.config_entries.flow.async_configure(
+        return await submit_setup_settings(
+            hass,
             flow_id,
-            user_input={
+            {
                 CONF_COMMUTE_NAME: "Morning Commute",
                 CONF_TIME_WINDOW: 60,
                 CONF_NUM_SERVICES: 3,
@@ -443,12 +451,21 @@ class TestConfigFlow:
             },
         )
 
-    async def test_settings_step_offers_delay_repay(self, hass: HomeAssistant):
-        """The setup settings form includes the Delay Repay toggle."""
+    async def test_setup_offers_delay_repay_after_disruption(
+        self, hass: HomeAssistant
+    ):
+        """Setup runs trains, then disruption, then the Delay Repay toggle."""
         result = await self._complete_flow_to_settings(hass, None)
         assert result["step_id"] == "settings"
-        keys = {str(k) for k in result["data_schema"].schema}
-        assert CONF_DELAY_REPAY_ENABLED in keys
+        assert CONF_DELAY_REPAY_ENABLED not in {
+            str(k) for k in result["data_schema"].schema
+        }
+
+        result = await submit_setup_settings(
+            hass, result["flow_id"], {CONF_COMMUTE_NAME: "Morning Commute"}
+        )
+        # The helper submits the toggle too; the details form means it was reached
+        assert result["step_id"] == "return_journey"
 
     async def test_settings_step_offers_favourite_trains(self, hass: HomeAssistant):
         """The setup settings form includes the favourite trains field."""
@@ -514,7 +531,7 @@ class TestConfigFlow:
         result = await self._submit_settings(
             hass, result["flow_id"], **{CONF_DELAY_REPAY_ENABLED: True}
         )
-        assert result["step_id"] == "delay_repay"
+        assert result["step_id"] == "delay_repay_details"
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -548,7 +565,7 @@ class TestConfigFlow:
                 CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS: 28,
             },
         )
-        assert result["step_id"] == "delay_repay"
+        assert result["step_id"] == "delay_repay_details"
         assert result["errors"] == {"base": "invalid_delay_repay_schemes"}
 
     async def test_delay_repay_step_skipped_when_disabled(
@@ -652,7 +669,7 @@ class TestConfigFlow:
                 result["flow_id"],
                 user_input={**self._DR_INPUT, CONF_ARRIVAL_API_KEY: "bad"},
             )
-        assert result["step_id"] == "delay_repay"
+        assert result["step_id"] == "delay_repay_details"
         assert result["errors"] == {CONF_ARRIVAL_API_KEY: expected}
 
     async def test_delay_repay_rejects_a_bad_service_details_key(
@@ -894,10 +911,6 @@ class TestConfigFlow:
                 CONF_COMMUTE_NAME: "Test",
                 CONF_TIME_WINDOW: 60,
                 CONF_NUM_SERVICES: 3,
-                CONF_NIGHT_UPDATES: False,
-                CONF_SEVERE_DELAY_THRESHOLD: DEFAULT_SEVERE_DELAY_THRESHOLD,
-                CONF_MAJOR_DELAY_THRESHOLD: DEFAULT_MAJOR_DELAY_THRESHOLD,
-                CONF_MINOR_DELAY_THRESHOLD: DEFAULT_MINOR_DELAY_THRESHOLD,
             },
         )
 
@@ -915,8 +928,14 @@ class TestOptionsFlow:
         # Use Home Assistant's proper options flow initialization
         result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
 
-        assert result["type"] == data_entry_flow.FlowResultType.FORM
+        assert result["type"] == data_entry_flow.FlowResultType.MENU
         assert result["step_id"] == "init"
+        assert result["menu_options"] == [
+            "trains",
+            "disruption",
+            "delay_repay",
+            "save",
+        ]
 
     async def test_options_flow_update(self, hass: HomeAssistant, mock_config_entry):
         """Test updating options."""
@@ -927,7 +946,8 @@ class TestOptionsFlow:
         result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
 
         # Configure the options
-        result = await hass.config_entries.options.async_configure(
+        result = await submit_options(
+            hass,
             result["flow_id"],
             user_input={
                 CONF_TIME_WINDOW: 90,
@@ -955,6 +975,11 @@ class TestOptionsFlow:
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
+        result = await open_options_page(hass, result["flow_id"], "delay_repay")
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={CONF_DELAY_REPAY_ENABLED: True}
+        )
+        assert result["step_id"] == "delay_repay_details"
         keys = {str(k) for k in result["data_schema"].schema}
         assert CONF_ARRIVAL_API_KEY in keys
         assert CONF_SERVICE_DETAILS_API_KEY in keys
@@ -972,12 +997,11 @@ class TestOptionsFlow:
             result = await hass.config_entries.options.async_configure(
                 result["flow_id"],
                 user_input={
-                    **self._BASE_OPTIONS,
-                    CONF_DELAY_REPAY_ENABLED: True,
                     CONF_ARRIVAL_API_KEY: "arrival-key",
                     CONF_SERVICE_DETAILS_API_KEY: "details-key",
                 },
             )
+        result = await open_options_page(hass, result["flow_id"], "save")
         arrival.assert_awaited_once_with(hass, "arrival-key")
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
         assert result["data"][CONF_ARRIVAL_API_KEY] == "arrival-key"
@@ -995,7 +1019,8 @@ class TestOptionsFlow:
             "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
             new=AsyncMock(side_effect=AuthenticationError("no")),
         ):
-            result = await hass.config_entries.options.async_configure(
+            result = await submit_options(
+                hass,
                 result["flow_id"],
                 user_input={
                     **self._BASE_OPTIONS,
@@ -1021,7 +1046,8 @@ class TestOptionsFlow:
             "custom_components.my_rail_commute.config_flow.validate_arrival_api_key",
             new=AsyncMock(),
         ) as arrival:
-            result = await hass.config_entries.options.async_configure(
+            result = await submit_options(
+                hass,
                 result["flow_id"],
                 user_input={
                     **self._BASE_OPTIONS,
@@ -1046,6 +1072,10 @@ class TestOptionsFlow:
         mock_config_entry.add_to_hass(hass)
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
+        )
+        result = await open_options_page(hass, result["flow_id"], "delay_repay")
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={CONF_DELAY_REPAY_ENABLED: True}
         )
         defaults = {
             str(k): k.default() for k in result["data_schema"].schema if hasattr(k, "default") and k.default is not vol.UNDEFINED

@@ -35,6 +35,8 @@ from custom_components.my_rail_commute.favourites import (
     parse_favourite_trains,
 )
 
+from .config_flow_helpers import submit_options
+
 
 def _service(std: str, delay: int = 0, cancelled: bool = False) -> dict:
     return {
@@ -322,7 +324,8 @@ async def test_options_flow_saves_favourites(
 ) -> None:
     mock_config_entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await submit_options(
+        hass,
         result["flow_id"],
         user_input=_options_input(**{CONF_FAVOURITE_TRAINS: "08:15, 17:42"}),
     )
@@ -335,7 +338,8 @@ async def test_options_flow_rejects_bad_favourites(
 ) -> None:
     mock_config_entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await submit_options(
+        hass,
         result["flow_id"],
         user_input=_options_input(**{CONF_FAVOURITE_TRAINS: "8am"}),
     )

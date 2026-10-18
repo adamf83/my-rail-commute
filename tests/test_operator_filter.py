@@ -34,6 +34,8 @@ from custom_components.my_rail_commute.operators import (
     service_matches_operators,
 )
 
+from .config_flow_helpers import open_options_page
+
 _TEST_TIME = datetime(2024, 1, 15, 8, 0, 0, tzinfo=dt_util.UTC)
 
 
@@ -206,20 +208,13 @@ async def test_options_flow_offers_and_saves_operator_filter(
 ) -> None:
     mock_config_entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await open_options_page(hass, result["flow_id"], "trains")
     assert CONF_OPERATOR_FILTER in {str(k) for k in result["data_schema"].schema}
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        user_input={
-            CONF_TIME_WINDOW: 60,
-            CONF_NUM_SERVICES: 3,
-            CONF_NIGHT_UPDATES: False,
-            CONF_SEVERE_DELAY_THRESHOLD: 15,
-            CONF_MAJOR_DELAY_THRESHOLD: 10,
-            CONF_MINOR_DELAY_THRESHOLD: 3,
-            CONF_OPERATOR_FILTER: ["GW", "SW"],
-        },
+        result["flow_id"], user_input={CONF_OPERATOR_FILTER: ["GW", "SW"]}
     )
+    result = await open_options_page(hass, result["flow_id"], "save")
 
     assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_OPERATOR_FILTER] == ["GW", "SW"]
@@ -230,6 +225,7 @@ async def test_options_flow_uses_a_dropdown(
 ) -> None:
     mock_config_entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await open_options_page(hass, result["flow_id"], "trains")
     schema = result["data_schema"].schema
     key = next(k for k in schema if str(k) == CONF_OPERATOR_FILTER)
     assert schema[key].config["mode"] == "dropdown"
