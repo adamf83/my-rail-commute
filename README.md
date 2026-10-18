@@ -343,14 +343,22 @@ Find your station codes at [National Rail Enquiries](https://www.nationalrail.co
 - **Destination Station**: Enter the 3-letter CRS code (e.g., `RDG`)
 - The integration will validate the stations and show their full names
 
-#### Step 3: Commute Settings
+#### Step 3: Trains to Watch
 - **Commute Name**: Friendly name (default: "Origin to Destination")
-- **Time Window**: How many minutes ahead to look (15-120 minutes, default: 60)
+- **Favourite trains**: Daily departure times to keep track of (optional)
+- **Train operators to show**: Hide operators you don't use (optional)
 - **Number of Services**: How many trains to track (1-10, default: 3)
+- **Time Window**: How many minutes ahead to look (15-120 minutes, default: 60)
+
+#### Step 4: Disruption Alerts
 - **Severe Disruption Threshold**: Minutes of delay to trigger "Severe Disruption" status for any train (1-60 minutes, default: 15)
 - **Major Delays Threshold**: Minutes of delay to trigger "Major Delays" status for any train (1-60 minutes, default: 10)
 - **Minor Delays Threshold**: Minutes of delay to trigger "Minor Delays" status for any train (1-60 minutes, default: 3)
+- **Departed Train Grace Period**: How long a train stays listed after it has left
 - **Enable Night-Time Updates**: Keep polling during night hours (23:00-05:00)
+
+#### Step 5: Delay Repay
+- **Track Delay Repay claims**: Off by default. Turn it on and the next page asks for the delay thresholds, operator overrides, claim window and API keys (see [Delay Repay Claims](#8-delay-repay-claims-opt-in))
 
 **Note on Status Hierarchy**: The Status sensor uses a 5-level hierarchy based on the maximum delay across all trains:
 - **"Normal"**: All trains on time (or below minor threshold)
@@ -366,15 +374,11 @@ All three delay thresholds are fully customizable. Validation ensures the hierar
 1. Go to **Settings** → **Devices & Services**
 2. Find your My Rail Commute integration
 3. Click **Configure**
-4. Adjust your settings:
-   - Time window
-   - Number of services to track
-   - Severe Disruption Threshold
-   - Major Delays Threshold
-   - Minor Delays Threshold
-   - Night-time updates
-   - Favourite trains (daily departure times to keep track of)
-   - Train operators to show (see [Operator filter](#operator-filter-opt-in))
+4. Pick a section from the menu, adjust it, and you come back to the menu:
+   - **Trains to watch**: favourite trains, train operators to show (see [Operator filter](#operator-filter-opt-in)), number of services, time window, and for multi-leg journeys the minimum connection time
+   - **Disruption alerts**: severe, major and minor delay thresholds, departed train grace period, night-time updates
+   - **Delay Repay**: the on/off switch. Turning it on opens the Delay Repay details page; turning it off keeps your saved details
+5. Choose **Save and close**. Nothing is stored until you do, and closing the dialog discards your edits.
 
 **Note**: When you update your configuration, any old threshold settings will automatically migrate to the new format.
 

@@ -35,6 +35,7 @@ from custom_components.my_rail_commute.const import (
     SERVICE_MARK_DELAY_REPAY_CLAIMED,
 )
 
+from .config_flow_helpers import submit_options
 from .delay_repay_helpers import NOW, fake_storage, late_service
 
 ENTITY_CLAIMS = "sensor.test_commute_delay_repay_claims"
@@ -61,20 +62,22 @@ class TestOptionsFlow:
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
-        result = await hass.config_entries.options.async_configure(
+        result = await submit_options(
+            hass,
             result["flow_id"], user_input=dict(_BASE_OPTIONS)
         )
         assert result["type"] == data_entry_flow.FlowResultType.CREATE_ENTRY
-        assert result["data"][CONF_DELAY_REPAY_ENABLED] is False
-        assert result["data"][CONF_DELAY_REPAY_THRESHOLDS] == "15,30,60,120"
-        assert result["data"][CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS] == 28
+        # Pages that were not visited leave Delay Repay at its defaults
+        assert not result["data"].get(CONF_DELAY_REPAY_ENABLED, False)
+        assert CONF_DELAY_REPAY_THRESHOLDS not in result["data"]
 
     async def test_saves_valid_schemes(self, hass: HomeAssistant, mock_config_entry):
         mock_config_entry.add_to_hass(hass)
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
-        result = await hass.config_entries.options.async_configure(
+        result = await submit_options(
+            hass,
             result["flow_id"],
             user_input={
                 **_BASE_OPTIONS,
@@ -100,7 +103,8 @@ class TestOptionsFlow:
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
-        result = await hass.config_entries.options.async_configure(
+        result = await submit_options(
+            hass,
             result["flow_id"],
             user_input={
                 **_BASE_OPTIONS,
@@ -119,7 +123,8 @@ class TestOptionsFlow:
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id
         )
-        result = await hass.config_entries.options.async_configure(
+        result = await submit_options(
+            hass,
             result["flow_id"],
             user_input={
                 **_BASE_OPTIONS,

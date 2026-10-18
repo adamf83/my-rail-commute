@@ -1,6 +1,7 @@
 """Config flow for My Rail Commute integration."""
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import logging
 import math
@@ -33,9 +34,9 @@ from .const import (
     CONF_DELAY_REPAY_THRESHOLDS,
     CONF_DEPARTED_TRAIN_GRACE_PERIOD,
     CONF_DESTINATION,
-    CONF_FAVOURITE_TRAINS,
     CONF_DISRUPTION_MULTIPLE_DELAY,
     CONF_DISRUPTION_SINGLE_DELAY,
+    CONF_FAVOURITE_TRAINS,
     CONF_LEG_DESTINATION,
     CONF_LEGS,
     CONF_MAJOR_DELAY_THRESHOLD,
@@ -284,6 +285,135 @@ def _operator_selector(
             mode=selector.SelectSelectorMode.DROPDOWN,
         )
     )
+
+
+def _minutes_slider(
+    minimum: int, maximum: int, step: int = 1
+) -> selector.NumberSelector:
+    """Return a slider for a number of minutes."""
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=minimum,
+            max=maximum,
+            step=step,
+            unit_of_measurement="minutes",
+            mode=selector.NumberSelectorMode.SLIDER,
+        ),
+    )
+
+
+def _claim_window_selector() -> selector.NumberSelector:
+    """Return a box for the Delay Repay claim window in days."""
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+            max=MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+            step=1,
+            unit_of_measurement="days",
+            mode=selector.NumberSelectorMode.BOX,
+        ),
+    )
+
+
+def _validate_favourites(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return an error if the favourite trains are not valid HH:MM times."""
+    try:
+        parse_favourite_trains(user_input.get(CONF_FAVOURITE_TRAINS))
+    except ValueError as err:
+        _LOGGER.error("Invalid favourite trains: %s", err)
+        return {"base": "invalid_favourite_trains"}
+    return {}
+
+
+def _validate_thresholds(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return an error if the disruption thresholds break the hierarchy."""
+    try:
+        validate_delay_thresholds(
+            user_input[CONF_SEVERE_DELAY_THRESHOLD],
+            user_input[CONF_MAJOR_DELAY_THRESHOLD],
+            user_input[CONF_MINOR_DELAY_THRESHOLD],
+        )
+    except ValueError as err:
+        _LOGGER.error("Invalid delay thresholds: %s", err)
+        return {"base": "invalid_thresholds"}
+    return {}
+
+
+def _validate_delay_repay_schemes(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return an error if the Delay Repay thresholds/overrides do not parse."""
+    try:
+        build_scheme_set(
+            user_input.get(CONF_DELAY_REPAY_THRESHOLDS)
+            or DEFAULT_DELAY_REPAY_THRESHOLDS,
+            user_input.get(CONF_DELAY_REPAY_OPERATORS) or "",
+        )
+    except ValueError as err:
+        _LOGGER.error("Invalid Delay Repay schemes: %s", err)
+        return {"base": "invalid_delay_repay_schemes"}
+    return {}
+
+
+def _disruption_schema(get: Callable[[str, Any], Any]) -> dict[Any, Any]:
+    """Fields for the disruption alerts page (``get`` supplies the defaults)."""
+    return {
+        vol.Required(
+            CONF_SEVERE_DELAY_THRESHOLD,
+            default=get(CONF_SEVERE_DELAY_THRESHOLD, DEFAULT_SEVERE_DELAY_THRESHOLD),
+        ): _minutes_slider(MIN_DELAY_THRESHOLD, MAX_DELAY_THRESHOLD),
+        vol.Required(
+            CONF_MAJOR_DELAY_THRESHOLD,
+            default=get(CONF_MAJOR_DELAY_THRESHOLD, DEFAULT_MAJOR_DELAY_THRESHOLD),
+        ): _minutes_slider(MIN_DELAY_THRESHOLD, MAX_DELAY_THRESHOLD),
+        vol.Required(
+            CONF_MINOR_DELAY_THRESHOLD,
+            default=get(CONF_MINOR_DELAY_THRESHOLD, DEFAULT_MINOR_DELAY_THRESHOLD),
+        ): _minutes_slider(MIN_DELAY_THRESHOLD, MAX_DELAY_THRESHOLD),
+        vol.Required(
+            CONF_DEPARTED_TRAIN_GRACE_PERIOD,
+            default=get(
+                CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
+            ),
+        ): _minutes_slider(MIN_GRACE_PERIOD, MAX_GRACE_PERIOD),
+        vol.Required(
+            CONF_NIGHT_UPDATES,
+            default=get(CONF_NIGHT_UPDATES, DEFAULT_NIGHT_UPDATES),
+        ): selector.BooleanSelector(),
+    }
+
+
+def _delay_repay_details_schema(get: Callable[[str, Any], Any]) -> dict[Any, Any]:
+    """Fields for the Delay Repay details page (API keys are added by the caller)."""
+    return {
+        vol.Optional(
+            CONF_DELAY_REPAY_THRESHOLDS,
+            default=get(CONF_DELAY_REPAY_THRESHOLDS, DEFAULT_DELAY_REPAY_THRESHOLDS),
+        ): selector.TextSelector(),
+        vol.Optional(
+            CONF_DELAY_REPAY_OPERATORS,
+            default=get(CONF_DELAY_REPAY_OPERATORS, ""),
+        ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+        vol.Required(
+            CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+            default=get(
+                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+                DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
+            ),
+        ): _claim_window_selector(),
+    }
+
+
+def _connection_schema(get: Callable[[str, Any], Any]) -> dict[Any, Any]:
+    """Multi-leg only fields for the trains-to-watch page."""
+    return {
+        vol.Required(
+            CONF_MIN_CONNECTION_TIME,
+            default=get(CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME),
+        ): _minutes_slider(MIN_CONNECTION_TIME, MAX_CONNECTION_TIME),
+        vol.Required(
+            CONF_ONLY_CATCHABLE_SERVICES,
+            default=get(CONF_ONLY_CATCHABLE_SERVICES, False),
+        ): selector.BooleanSelector(),
+    }
 
 
 class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -634,60 +764,34 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle settings configuration step.
+        """Handle the trains-to-watch step (name, favourites, filters, window).
 
         Args:
             user_input: User input data
 
         Returns:
-            FlowResult for creating entry
+            FlowResult for the disruption step
         """
         errors: dict[str, str] = {}
 
-        if user_input is not None:
-            # Validate delay thresholds
-            try:
-                validate_delay_thresholds(
-                    user_input[CONF_SEVERE_DELAY_THRESHOLD],
-                    user_input[CONF_MAJOR_DELAY_THRESHOLD],
-                    user_input[CONF_MINOR_DELAY_THRESHOLD],
-                )
-            except ValueError as err:
-                errors["base"] = "invalid_thresholds"
-                _LOGGER.error("Invalid delay thresholds: %s", err)
+        if self._all_departures:
+            default_name = f"Departures from {self._origin_name}"
+        else:
+            default_name = f"{self._origin_name} to {self._destination_name}"
 
-            # Validate favourite trains (comma-separated HH:MM times)
-            try:
-                parse_favourite_trains(user_input.get(CONF_FAVOURITE_TRAINS))
-            except ValueError as err:
-                errors["base"] = "invalid_favourite_trains"
-                _LOGGER.error("Invalid favourite trains: %s", err)
+        if user_input is not None:
+            errors.update(_validate_favourites(user_input))
 
             if not errors:
-                # Store settings in instance variables
-                if self._all_departures:
-                    default_name = f"Departures from {self._origin_name}"
-                else:
-                    default_name = f"{self._origin_name} to {self._destination_name}"
                 self._commute_name = user_input.get(CONF_COMMUTE_NAME, default_name)
-                self._time_window = user_input[CONF_TIME_WINDOW]
-                self._num_services = user_input[CONF_NUM_SERVICES]
-                self._night_updates = user_input[CONF_NIGHT_UPDATES]
-                self._severe_delay_threshold = user_input[CONF_SEVERE_DELAY_THRESHOLD]
-                self._major_delay_threshold = user_input[CONF_MAJOR_DELAY_THRESHOLD]
-                self._minor_delay_threshold = user_input[CONF_MINOR_DELAY_THRESHOLD]
-                self._departed_train_grace_period = user_input.get(
-                    CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
-                )
                 self._favourite_trains = (
                     user_input.get(CONF_FAVOURITE_TRAINS) or ""
                 ).strip()
                 self._operator_filter = clean_operator_filter(
                     user_input.get(CONF_OPERATOR_FILTER)
                 )
-                self._delay_repay_enabled = bool(
-                    user_input.get(CONF_DELAY_REPAY_ENABLED, False)
-                )
+                self._num_services = user_input[CONF_NUM_SERVICES]
+                self._time_window = user_input[CONF_TIME_WINDOW]
                 if len(self._legs) > 1:
                     self._min_connection_time = user_input.get(
                         CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME
@@ -701,39 +805,16 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(build_route_id(self._legs))
                 self._abort_if_unique_id_configured()
 
-                # Home Assistant forms can't reveal fields conditionally, so the
-                # Delay Repay options get their own step when the toggle is on
-                if self._delay_repay_enabled:
-                    return await self.async_step_delay_repay()
-
-                return await self._async_after_settings()
-
-        # Default commute name
-        if self._all_departures:
-            default_name = f"Departures from {self._origin_name}"
-        else:
-            default_name = f"{self._origin_name} to {self._destination_name}"
+                return await self.async_step_disruption()
 
         schema_dict: dict[Any, Any] = {
-            vol.Optional(
-                CONF_COMMUTE_NAME,
-                default=default_name,
-            ): str,
-            vol.Required(
-                CONF_TIME_WINDOW,
-                default=DEFAULT_TIME_WINDOW,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_TIME_WINDOW,
-                    max=MAX_TIME_WINDOW,
-                    step=5,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
+            vol.Optional(CONF_COMMUTE_NAME, default=default_name): str,
+            vol.Optional(CONF_FAVOURITE_TRAINS, default=""): selector.TextSelector(),
+            vol.Optional(CONF_OPERATOR_FILTER, default=[]): _operator_selector(
+                None, []
             ),
             vol.Required(
-                CONF_NUM_SERVICES,
-                default=DEFAULT_NUM_SERVICES,
+                CONF_NUM_SERVICES, default=DEFAULT_NUM_SERVICES
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=MIN_NUM_SERVICES,
@@ -743,104 +824,58 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
             ),
             vol.Required(
-                CONF_SEVERE_DELAY_THRESHOLD,
-                default=DEFAULT_SEVERE_DELAY_THRESHOLD,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_DELAY_THRESHOLD,
-                    max=MAX_DELAY_THRESHOLD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
-            vol.Required(
-                CONF_MAJOR_DELAY_THRESHOLD,
-                default=DEFAULT_MAJOR_DELAY_THRESHOLD,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_DELAY_THRESHOLD,
-                    max=MAX_DELAY_THRESHOLD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
-            vol.Required(
-                CONF_MINOR_DELAY_THRESHOLD,
-                default=DEFAULT_MINOR_DELAY_THRESHOLD,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_DELAY_THRESHOLD,
-                    max=MAX_DELAY_THRESHOLD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
-            vol.Required(
-                CONF_NIGHT_UPDATES,
-                default=DEFAULT_NIGHT_UPDATES,
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_DEPARTED_TRAIN_GRACE_PERIOD,
-                default=DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_GRACE_PERIOD,
-                    max=MAX_GRACE_PERIOD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
+                CONF_TIME_WINDOW, default=DEFAULT_TIME_WINDOW
+            ): _minutes_slider(MIN_TIME_WINDOW, MAX_TIME_WINDOW, step=5),
         }
-
-        schema_dict[vol.Optional(CONF_FAVOURITE_TRAINS, default="")] = (
-            selector.TextSelector()
-        )
-        schema_dict[vol.Optional(CONF_OPERATOR_FILTER, default=[])] = (
-            _operator_selector(None, [])
-        )
-
-        # Delay Repay needs a destination to judge arrival delays against
-        if not self._all_departures:
-            schema_dict[
-                vol.Required(CONF_DELAY_REPAY_ENABLED, default=False)
-            ] = selector.BooleanSelector()
-
         if len(self._legs) > 1:
-            schema_dict[
-                vol.Required(
-                    CONF_MIN_CONNECTION_TIME,
-                    default=DEFAULT_MIN_CONNECTION_TIME,
-                )
-            ] = selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_CONNECTION_TIME,
-                    max=MAX_CONNECTION_TIME,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            )
-            schema_dict[
-                vol.Required(
-                    CONF_ONLY_CATCHABLE_SERVICES,
-                    default=False,
-                )
-            ] = selector.BooleanSelector()
-
-        data_schema = vol.Schema(schema_dict)
+            schema_dict.update(_connection_schema(lambda _key, default: default))
 
         return self.async_show_form(
             step_id="settings",
-            data_schema=data_schema,
+            data_schema=vol.Schema(schema_dict),
             errors=errors,
             description_placeholders={
                 "origin": self._origin_name,
                 "destination": self._destination_name or "All destinations",
             },
+        )
+
+    async def async_step_disruption(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the disruption alerts step (thresholds, grace, night updates).
+
+        Args:
+            user_input: User input data
+
+        Returns:
+            FlowResult for the Delay Repay step or the end of the flow
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors.update(_validate_thresholds(user_input))
+
+            if not errors:
+                self._severe_delay_threshold = user_input[CONF_SEVERE_DELAY_THRESHOLD]
+                self._major_delay_threshold = user_input[CONF_MAJOR_DELAY_THRESHOLD]
+                self._minor_delay_threshold = user_input[CONF_MINOR_DELAY_THRESHOLD]
+                self._departed_train_grace_period = user_input.get(
+                    CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD
+                )
+                self._night_updates = user_input[CONF_NIGHT_UPDATES]
+
+                # Delay Repay needs a destination to judge arrival delays against
+                if self._all_departures:
+                    return await self._async_after_settings()
+                return await self.async_step_delay_repay()
+
+        return self.async_show_form(
+            step_id="disruption",
+            data_schema=vol.Schema(
+                _disruption_schema(lambda _key, default: default)
+            ),
+            errors=errors,
         )
 
     async def _async_after_settings(self) -> FlowResult:
@@ -852,6 +887,39 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_return_journey()
 
     async def async_step_delay_repay(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Ask whether to track Delay Repay claims.
+
+        Home Assistant forms can't reveal fields conditionally, so the Delay
+        Repay options get their own step when this toggle is on.
+
+        Args:
+            user_input: User input data
+
+        Returns:
+            FlowResult for the details step or the end of the flow
+        """
+        if user_input is not None:
+            self._delay_repay_enabled = bool(
+                user_input.get(CONF_DELAY_REPAY_ENABLED, False)
+            )
+            if self._delay_repay_enabled:
+                return await self.async_step_delay_repay_details()
+            return await self._async_after_settings()
+
+        return self.async_show_form(
+            step_id="delay_repay",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DELAY_REPAY_ENABLED, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+        )
+
+    async def async_step_delay_repay_details(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Configure Delay Repay tracking (shown only when it was enabled).
@@ -870,15 +938,7 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
         if user_input is not None:
-            try:
-                build_scheme_set(
-                    user_input.get(CONF_DELAY_REPAY_THRESHOLDS)
-                    or DEFAULT_DELAY_REPAY_THRESHOLDS,
-                    user_input.get(CONF_DELAY_REPAY_OPERATORS) or "",
-                )
-            except ValueError as err:
-                errors["base"] = "invalid_delay_repay_schemes"
-                _LOGGER.error("Invalid Delay Repay schemes: %s", err)
+            errors.update(_validate_delay_repay_schemes(user_input))
 
             if not errors:
                 errors.update(await validate_product_keys(self.hass, user_input))
@@ -910,34 +970,14 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._delay_repay_settings[conf_key] = key
                 return await self._async_after_settings()
 
-        schema: dict[Any, Any] = {
-            vol.Optional(
-                CONF_DELAY_REPAY_THRESHOLDS,
-                default=DEFAULT_DELAY_REPAY_THRESHOLDS,
-            ): selector.TextSelector(),
-            vol.Optional(
-                CONF_DELAY_REPAY_OPERATORS, default=""
-            ): selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
-            vol.Required(
-                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                default=DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                    max=MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                    step=1,
-                    unit_of_measurement="days",
-                    mode=selector.NumberSelectorMode.BOX,
-                ),
-            ),
-        }
+        schema = _delay_repay_details_schema(lambda _key, default: default)
         # Only ask for a key that no other commute already holds
         for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
             if conf_key not in shared_keys:
                 schema[vol.Optional(conf_key)] = _key_selector()
 
         return self.async_show_form(
-            step_id="delay_repay",
+            step_id="delay_repay_details",
             data_schema=vol.Schema(schema),
             errors=errors,
         )
@@ -1094,111 +1134,73 @@ class NationalRailCommuteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow for My Rail Commute."""
+    """Handle options flow for My Rail Commute.
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Manage the options.
+    The flow is a menu of pages. Each page edits an in-memory draft and returns
+    to the menu; nothing is stored (and the entry is not reloaded) until Save.
+    """
 
-        Args:
-            user_input: User input data
+    def __init__(self) -> None:
+        """Initialize the options flow."""
+        self._draft: dict[str, Any] = {}
 
-        Returns:
-            FlowResult for options
+    def _get(self, key: str, default: Any = None) -> Any:
+        """Current value: unsaved draft, else saved option, else setup data."""
+        if key in self._draft:
+            return self._draft[key]
+        if key in self.config_entry.options:
+            return self.config_entry.options[key]
+        return self.config_entry.data.get(key, default)
+
+    def _stored_key(self, conf_key: str) -> str:
+        """This commute's own API key, else one entered on another commute.
+
+        The keys belong to the Rail Data subscription, not to a route.
         """
-        errors: dict[str, str] = {}
-
-        # Get current values
-        current_data = self.config_entry.data
-        options = self.config_entry.options
-        # This commute's own keys, else one entered on another commute (the
-        # keys belong to the Rail Data subscription, not to a route)
-        stored_keys = {
-            conf_key: options.get(conf_key)
-            or current_data.get(conf_key)
+        return (
+            self._get(conf_key)
             or find_shared_key(
                 self.hass, conf_key, exclude_entry_id=self.config_entry.entry_id
             )
             or ""
-            for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY)
-        }
+        )
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Show the menu of settings pages."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["trains", "disruption", "delay_repay", "save"],
+        )
+
+    async def async_step_trains(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Edit which trains to watch (favourites, operators, window)."""
+        errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate delay thresholds
-            try:
-                validate_delay_thresholds(
-                    user_input[CONF_SEVERE_DELAY_THRESHOLD],
-                    user_input[CONF_MAJOR_DELAY_THRESHOLD],
-                    user_input[CONF_MINOR_DELAY_THRESHOLD],
-                )
-            except ValueError as err:
-                errors["base"] = "invalid_thresholds"
-                _LOGGER.error("Invalid delay thresholds: %s", err)
-
-            # Validate Delay Repay schemes (only when the feature is on)
-            if user_input.get(CONF_DELAY_REPAY_ENABLED):
-                try:
-                    build_scheme_set(
-                        user_input.get(CONF_DELAY_REPAY_THRESHOLDS)
-                        or DEFAULT_DELAY_REPAY_THRESHOLDS,
-                        user_input.get(CONF_DELAY_REPAY_OPERATORS) or "",
-                    )
-                except ValueError as err:
-                    errors["base"] = "invalid_delay_repay_schemes"
-                    _LOGGER.error("Invalid Delay Repay schemes: %s", err)
-
-            # Validate favourite trains (comma-separated HH:MM times)
-            try:
-                parse_favourite_trains(user_input.get(CONF_FAVOURITE_TRAINS))
-            except ValueError as err:
-                errors["base"] = "invalid_favourite_trains"
-                _LOGGER.error("Invalid favourite trains: %s", err)
-
-            # Validate any newly entered arrival board / service details key
-            if not errors and user_input.get(CONF_DELAY_REPAY_ENABLED):
-                errors.update(
-                    await validate_product_keys(
-                        self.hass,
-                        user_input,
-                        {
-                            conf_key: stored_keys[conf_key]
-                            for conf_key in stored_keys
-                            if stored_keys[conf_key]
-                        },
-                    )
-                )
-
+            errors.update(_validate_favourites(user_input))
             if not errors:
-                data = dict(user_input)
-                for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
-                    if conf_key in data:
-                        data[conf_key] = (data[conf_key] or "").strip()
-                # Update the config entry
-                return self.async_create_entry(title="", data=data)
+                self._draft.update(user_input)
+                return await self.async_step_init()
+
+        selected_operators = clean_operator_filter(self._get(CONF_OPERATOR_FILTER))
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
 
         schema_dict: dict[Any, Any] = {
-            vol.Required(
-                CONF_TIME_WINDOW,
-                default=options.get(
-                    CONF_TIME_WINDOW,
-                    current_data.get(CONF_TIME_WINDOW, DEFAULT_TIME_WINDOW),
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_TIME_WINDOW,
-                    max=MAX_TIME_WINDOW,
-                    step=5,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
+            vol.Optional(
+                CONF_FAVOURITE_TRAINS, default=self._get(CONF_FAVOURITE_TRAINS, "")
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_OPERATOR_FILTER, default=selected_operators
+            ): _operator_selector(
+                getattr(coordinator, "observed_operators", None), selected_operators
             ),
             vol.Required(
                 CONF_NUM_SERVICES,
-                default=options.get(
-                    CONF_NUM_SERVICES,
-                    current_data.get(CONF_NUM_SERVICES, DEFAULT_NUM_SERVICES),
-                ),
+                default=self._get(CONF_NUM_SERVICES, DEFAULT_NUM_SERVICES),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=MIN_NUM_SERVICES,
@@ -1208,179 +1210,120 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 ),
             ),
             vol.Required(
-                CONF_SEVERE_DELAY_THRESHOLD,
-                default=options.get(
-                    CONF_SEVERE_DELAY_THRESHOLD,
-                    current_data.get(
-                        CONF_SEVERE_DELAY_THRESHOLD,
-                        # Migration from old config
-                        current_data.get(CONF_DISRUPTION_SINGLE_DELAY, DEFAULT_SEVERE_DELAY_THRESHOLD),
-                    ),
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_DELAY_THRESHOLD,
-                    max=MAX_DELAY_THRESHOLD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
-            vol.Required(
-                CONF_MAJOR_DELAY_THRESHOLD,
-                default=options.get(
-                    CONF_MAJOR_DELAY_THRESHOLD,
-                    current_data.get(
-                        CONF_MAJOR_DELAY_THRESHOLD,
-                        # Migration from old config
-                        current_data.get(CONF_DISRUPTION_MULTIPLE_DELAY, DEFAULT_MAJOR_DELAY_THRESHOLD),
-                    ),
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_DELAY_THRESHOLD,
-                    max=MAX_DELAY_THRESHOLD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
-            vol.Required(
-                CONF_MINOR_DELAY_THRESHOLD,
-                default=options.get(
-                    CONF_MINOR_DELAY_THRESHOLD,
-                    current_data.get(CONF_MINOR_DELAY_THRESHOLD, DEFAULT_MINOR_DELAY_THRESHOLD),
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_DELAY_THRESHOLD,
-                    max=MAX_DELAY_THRESHOLD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
-            vol.Required(
-                CONF_NIGHT_UPDATES,
-                default=options.get(
-                    CONF_NIGHT_UPDATES,
-                    current_data.get(CONF_NIGHT_UPDATES, DEFAULT_NIGHT_UPDATES),
-                ),
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_DEPARTED_TRAIN_GRACE_PERIOD,
-                default=options.get(
-                    CONF_DEPARTED_TRAIN_GRACE_PERIOD,
-                    current_data.get(CONF_DEPARTED_TRAIN_GRACE_PERIOD, DEFAULT_DEPARTED_TRAIN_GRACE_PERIOD),
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_GRACE_PERIOD,
-                    max=MAX_GRACE_PERIOD,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            ),
+                CONF_TIME_WINDOW,
+                default=self._get(CONF_TIME_WINDOW, DEFAULT_TIME_WINDOW),
+            ): _minutes_slider(MIN_TIME_WINDOW, MAX_TIME_WINDOW, step=5),
         }
-
-        schema_dict[
-            vol.Required(
-                CONF_DELAY_REPAY_ENABLED,
-                default=options.get(
-                    CONF_DELAY_REPAY_ENABLED,
-                    current_data.get(CONF_DELAY_REPAY_ENABLED, False),
-                ),
-            )
-        ] = selector.BooleanSelector()
-        schema_dict[
-            vol.Optional(
-                CONF_DELAY_REPAY_THRESHOLDS,
-                default=options.get(
-                    CONF_DELAY_REPAY_THRESHOLDS, DEFAULT_DELAY_REPAY_THRESHOLDS
-                ),
-            )
-        ] = selector.TextSelector()
-        schema_dict[
-            vol.Optional(
-                CONF_DELAY_REPAY_OPERATORS,
-                default=options.get(CONF_DELAY_REPAY_OPERATORS, ""),
-            )
-        ] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
-        schema_dict[
-            vol.Required(
-                CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                default=options.get(
-                    CONF_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                    DEFAULT_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                ),
-            )
-        ] = selector.NumberSelector(
-            selector.NumberSelectorConfig(
-                min=MIN_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                max=MAX_DELAY_REPAY_CLAIM_WINDOW_DAYS,
-                step=1,
-                unit_of_measurement="days",
-                mode=selector.NumberSelectorMode.BOX,
-            ),
-        )
-
-        schema_dict[
-            vol.Optional(
-                CONF_FAVOURITE_TRAINS,
-                default=options.get(CONF_FAVOURITE_TRAINS, ""),
-            )
-        ] = selector.TextSelector()
-
-        selected_operators = clean_operator_filter(
-            options.get(CONF_OPERATOR_FILTER, current_data.get(CONF_OPERATOR_FILTER))
-        )
-        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
-        schema_dict[
-            vol.Optional(CONF_OPERATOR_FILTER, default=selected_operators)
-        ] = _operator_selector(
-            getattr(coordinator, "observed_operators", None), selected_operators
-        )
-
-        for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
-            schema_dict[
-                vol.Optional(conf_key, default=stored_keys[conf_key])
-            ] = _key_selector()
-
-        if len(current_data.get(CONF_LEGS) or []) > 1:
-            schema_dict[
-                vol.Required(
-                    CONF_MIN_CONNECTION_TIME,
-                    default=options.get(
-                        CONF_MIN_CONNECTION_TIME,
-                        current_data.get(
-                            CONF_MIN_CONNECTION_TIME, DEFAULT_MIN_CONNECTION_TIME
-                        ),
-                    ),
-                )
-            ] = selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=MIN_CONNECTION_TIME,
-                    max=MAX_CONNECTION_TIME,
-                    step=1,
-                    unit_of_measurement="minutes",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                ),
-            )
-            schema_dict[
-                vol.Required(
-                    CONF_ONLY_CATCHABLE_SERVICES,
-                    default=options.get(
-                        CONF_ONLY_CATCHABLE_SERVICES,
-                        current_data.get(CONF_ONLY_CATCHABLE_SERVICES, False),
-                    ),
-                )
-            ] = selector.BooleanSelector()
-
-        data_schema = vol.Schema(schema_dict)
+        if len(self.config_entry.data.get(CONF_LEGS) or []) > 1:
+            schema_dict.update(_connection_schema(self._get))
 
         return self.async_show_form(
-            step_id="init",
-            data_schema=data_schema,
+            step_id="trains",
+            data_schema=vol.Schema(schema_dict),
             errors=errors,
+        )
+
+    async def async_step_disruption(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Edit disruption thresholds, grace period and night updates."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors.update(_validate_thresholds(user_input))
+            if not errors:
+                self._draft.update(user_input)
+                return await self.async_step_init()
+
+        data = self.config_entry.data
+
+        def get(key: str, default: Any) -> Any:
+            # Older entries stored the severe/major thresholds under legacy keys
+            if key == CONF_SEVERE_DELAY_THRESHOLD:
+                default = data.get(CONF_DISRUPTION_SINGLE_DELAY, default)
+            elif key == CONF_MAJOR_DELAY_THRESHOLD:
+                default = data.get(CONF_DISRUPTION_MULTIPLE_DELAY, default)
+            return self._get(key, default)
+
+        return self.async_show_form(
+            step_id="disruption",
+            data_schema=vol.Schema(_disruption_schema(get)),
+            errors=errors,
+        )
+
+    async def async_step_delay_repay(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Toggle Delay Repay; its details page opens only when it is on."""
+        if user_input is not None:
+            enabled = bool(user_input.get(CONF_DELAY_REPAY_ENABLED, False))
+            self._draft[CONF_DELAY_REPAY_ENABLED] = enabled
+            if enabled:
+                return await self.async_step_delay_repay_details()
+            # Switching off keeps the stored details for when it is turned back on
+            return await self.async_step_init()
+
+        return self.async_show_form(
+            step_id="delay_repay",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DELAY_REPAY_ENABLED,
+                        default=bool(self._get(CONF_DELAY_REPAY_ENABLED, False)),
+                    ): selector.BooleanSelector()
+                }
+            ),
+        )
+
+    async def async_step_delay_repay_details(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Edit Delay Repay thresholds, overrides, claim window and API keys."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors.update(_validate_delay_repay_schemes(user_input))
+
+            if not errors:
+                errors.update(
+                    await validate_product_keys(
+                        self.hass,
+                        user_input,
+                        {
+                            conf_key: key
+                            for conf_key in (
+                                CONF_ARRIVAL_API_KEY,
+                                CONF_SERVICE_DETAILS_API_KEY,
+                            )
+                            if (key := self._stored_key(conf_key))
+                        },
+                    )
+                )
+
+            if not errors:
+                data = dict(user_input)
+                for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
+                    if conf_key in data:
+                        data[conf_key] = (data[conf_key] or "").strip()
+                self._draft.update(data)
+                return await self.async_step_init()
+
+        schema = _delay_repay_details_schema(self._get)
+        for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
+            schema[vol.Optional(conf_key, default=self._stored_key(conf_key))] = (
+                _key_selector()
+            )
+
+        return self.async_show_form(
+            step_id="delay_repay_details",
+            data_schema=vol.Schema(schema),
+            errors=errors,
+        )
+
+    async def async_step_save(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Store everything edited on the pages above in one go."""
+        return self.async_create_entry(
+            title="", data={**self.config_entry.options, **self._draft}
         )
