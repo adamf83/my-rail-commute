@@ -192,6 +192,16 @@ Departed results reset on the first update of each new day. Removing a time from
 
 Pair it with the `my-rail-commute-favourites-card` in the [Lovelace card](https://github.com/adamf83/lovelace-my-rail-commute-card) to show them on a dashboard.
 
+### Operator filter (opt-in)
+
+Only want trains from certain operators, such as your direct service rather than the stopping one? Go to **Settings** → **Devices & Services** → **Configure** and tick the operators you want under **Train operators to show**. Trains from every other operator are hidden from that commute's sensors, summary and statistics. Leave all unticked to show every operator.
+
+- The filter applies to every leg of a multi-leg journey, and connections are worked out from the filtered trains only.
+- Operators seen on the live board are added to the list automatically, so new or unusual operators can still be chosen.
+- Any service without an operator code (some rail-replacement buses) is hidden while a filter is set.
+- Favourite trains are not filtered.
+- The summary sensor's `operator_filter` attribute lists the active codes, and each train sensor has an `operator_code` attribute.
+
 ## Actions
 
 The integration provides several actions (callable via **Developer Tools → Actions** or automations):
@@ -363,6 +373,7 @@ All three delay thresholds are fully customizable. Validation ensures the hierar
    - Minor Delays Threshold
    - Night-time updates
    - Favourite trains (daily departure times to keep track of)
+   - Train operators to show (see [Operator filter](#operator-filter-opt-in))
 
 **Note**: When you update your configuration, any old threshold settings will automatically migrate to the new format.
 

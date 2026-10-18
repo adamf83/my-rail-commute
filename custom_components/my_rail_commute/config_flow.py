@@ -44,6 +44,7 @@ from .const import (
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ONLY_CATCHABLE_SERVICES,
+    CONF_OPERATOR_FILTER,
     CONF_ORIGIN,
     CONF_SERVICE_DETAILS_API_KEY,
     CONF_SEVERE_DELAY_THRESHOLD,
@@ -79,6 +80,7 @@ from .coordinator import build_route_id
 from .delay_repay.schemes import build_scheme_set
 from .favourites import parse_favourite_trains
 from .keys import find_shared_key
+from .operators import clean_operator_filter, operator_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1301,6 +1303,26 @@ class NationalRailCommuteOptionsFlow(config_entries.OptionsFlow):
                 default=options.get(CONF_FAVOURITE_TRAINS, ""),
             )
         ] = selector.TextSelector()
+
+        selected_operators = clean_operator_filter(
+            options.get(CONF_OPERATOR_FILTER, current_data.get(CONF_OPERATOR_FILTER))
+        )
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        choices = operator_options(
+            getattr(coordinator, "observed_operators", None), selected_operators
+        )
+        schema_dict[
+            vol.Optional(CONF_OPERATOR_FILTER, default=selected_operators)
+        ] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=code, label=f"{name} ({code})")
+                    for code, name in choices.items()
+                ],
+                multiple=True,
+                mode=selector.SelectSelectorMode.LIST,
+            )
+        )
 
         for conf_key in (CONF_ARRIVAL_API_KEY, CONF_SERVICE_DETAILS_API_KEY):
             schema_dict[

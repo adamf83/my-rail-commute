@@ -843,6 +843,7 @@ class NationalRailAPI:
             etd = service.get("etd", "")  # Estimated departure
             platform = service.get("platform", "")
             operator_name = service.get("operator", service.get("operatorName", ""))
+            operator_code = service.get("operatorCode", "")
             service_id = service.get("serviceID", service.get("serviceIdUrlSafe", ""))
 
             # Determine status
@@ -945,6 +946,7 @@ class NationalRailAPI:
                 "expected_departure": expected_departure or std,
                 "platform": display_platform,
                 "operator": operator_name,
+                "operator_code": operator_code,
                 "service_id": service_id,
                 "calling_points": calling_points,
                 "calling_point_details": calling_point_details,

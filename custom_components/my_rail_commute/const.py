@@ -24,6 +24,8 @@ CONF_ADD_LEG: Final = "add_leg"
 CONF_LEG_DESTINATION: Final = "leg_destination"
 CONF_MIN_CONNECTION_TIME: Final = "min_connection_time"
 CONF_ONLY_CATCHABLE_SERVICES: Final = "only_catchable_services"
+# Operator (TOC) codes to show; empty means every operator
+CONF_OPERATOR_FILTER: Final = "operator_filter"
 
 # Optional keys for the other Rail Data products used to confirm Delay Repay
 # journeys (the main CONF_API_KEY is the departure board product)
@@ -145,6 +147,8 @@ ATTR_SCHEDULED_DEPARTURE: Final = "scheduled_departure"
 ATTR_EXPECTED_DEPARTURE: Final = "expected_departure"
 ATTR_PLATFORM: Final = "platform"
 ATTR_OPERATOR: Final = "operator"
+ATTR_OPERATOR_CODE: Final = "operator_code"
+ATTR_OPERATOR_FILTER: Final = "operator_filter"
 ATTR_SERVICE_ID: Final = "service_id"
 ATTR_CALLING_POINTS: Final = "calling_points"
 ATTR_DELAY_MINUTES: Final = "delay_minutes"
@@ -201,6 +205,10 @@ FAVOURITE_STATES: Final = [
 # Rows requested from the board when favourites are set, so a favourite is
 # not cut off by a low num_services setting
 FAVOURITE_BOARD_MIN_ROWS: Final = 20
+
+# Rows requested from the board when an operator filter is set, so the chosen
+# operators' trains are not cut off by a low num_services setting
+OPERATOR_FILTER_MIN_ROWS: Final = 20
 
 # Attribute names for historical sensors
 ATTR_ON_TIME_PCT_TODAY: Final = "on_time_pct_today"

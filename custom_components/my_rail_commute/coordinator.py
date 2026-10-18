@@ -28,6 +28,7 @@ from .const import (
     CONF_NIGHT_UPDATES,
     CONF_NUM_SERVICES,
     CONF_ONLY_CATCHABLE_SERVICES,
+    CONF_OPERATOR_FILTER,
     CONF_ORIGIN,
     CONF_SEVERE_DELAY_THRESHOLD,
     CONF_TIME_WINDOW,
@@ -39,6 +40,7 @@ from .const import (
     DOMAIN,
     MIN_DELAY_THRESHOLD,
     NIGHT_HOURS,
+    OPERATOR_FILTER_MIN_ROWS,
     PEAK_HOURS,
     STATUS_CANCELLED,
     STATUS_CONNECTION_DELAYED,
@@ -59,6 +61,7 @@ from .const import (
     UPDATE_INTERVAL_PEAK,
 )
 from .favourites import build_favourite_states, parse_favourite_trains
+from .operators import clean_operator_filter, service_matches_operators
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,6 +155,14 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         self.only_catchable_services = bool(
             config.get(CONF_ONLY_CATCHABLE_SERVICES, False)
         )
+
+        # Operator codes to show; empty means every operator
+        self.operator_filter: list[str] = clean_operator_filter(
+            config.get(CONF_OPERATOR_FILTER)
+        )
+        # Operators (code -> name) seen on live boards, offered as extra
+        # choices in the options flow
+        self.observed_operators: dict[str, str] = {}
 
         # Delay thresholds (user-configurable)
         # Support migration from old config format
@@ -303,6 +314,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                     if self.only_catchable_services
                     else self.num_services
                 )
+                if self.operator_filter:
+                    leg_num_rows = max(leg_num_rows, OPERATOR_FILTER_MIN_ROWS)
                 for leg_index, leg in enumerate(self.legs):
                     raw_leg_data.append(
                         await self.api.get_departure_board(
@@ -316,6 +329,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                             ),
                         )
                     )
+
+                for raw_leg in raw_leg_data:
+                    self._record_operators(raw_leg.get("services", []))
 
                 self.origin_name = raw_leg_data[0].get("location_name", self.origin)
                 self.destination_name = raw_leg_data[-1].get(
@@ -335,6 +351,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 if self.favourite_trains:
                     num_rows = max(num_rows, FAVOURITE_BOARD_MIN_ROWS)
+                if self.operator_filter:
+                    num_rows = max(num_rows, OPERATOR_FILTER_MIN_ROWS)
 
                 # Fetch departure board
                 data = await self.api.get_departure_board(
@@ -343,6 +361,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                     time_window=self.time_window,
                     num_rows=num_rows,
                 )
+
+                self._record_operators(data.get("services", []))
 
                 # Store station names
                 self.origin_name = data.get("location_name", self.origin)
@@ -422,6 +442,21 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 return self.data
 
             raise UpdateFailed(f"Failed to fetch data: {err}") from err
+
+    def _record_operators(self, services: list[dict[str, Any]]) -> None:
+        """Remember the operators seen on a board (before any filtering)."""
+        for service in services:
+            code = (service.get("operator_code") or "").strip().upper()
+            if code and code not in self.observed_operators:
+                self.observed_operators[code] = service.get("operator") or code
+
+    def _filter_operators(self, services: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Keep only services run by the selected operators (all if none set)."""
+        if not self.operator_filter:
+            return services
+        return [
+            s for s in services if service_matches_operators(s, self.operator_filter)
+        ]
 
     async def _apply_favourites(
         self, raw_services: list[dict[str, Any]], parsed_data: dict[str, Any]
@@ -586,7 +621,8 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
         Returns:
             Parsed per-leg data with additional calculated fields
         """
-        services = raw_data.get("services", [])
+        raw_services = raw_data.get("services", [])
+        services = self._filter_operators(raw_services)
 
         if next_leg_services is not None:
             # Evaluate (and optionally filter) against the full raw list
@@ -629,6 +665,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             summary = self._build_all_departures_summary(
                 len(services), on_time_count, delayed_count, cancelled_count
             )
+        elif not services and self.operator_filter and raw_services:
+            # The operator filter removed every service on this leg
+            summary = "No services from selected operators"
         elif not services and connection_pool:
             # only_catchable_services filtered out every real service on this
             # leg — say so explicitly rather than the misleading "No trains
@@ -659,7 +698,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "destination": leg["destination"],
             "destination_name": raw_data.get("destination_name", leg["destination"]),
             "services_tracked": len(services),
-            "total_services_found": len(raw_data.get("services", [])),
+            "total_services_found": len(raw_services),
             "services": services,
             "on_time_count": on_time_count,
             "delayed_count": delayed_count,
@@ -947,6 +986,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 "last_updated": dt_util.now().isoformat(),
                 "next_update": (dt_util.now() + self.update_interval).isoformat(),
                 "nrcc_messages": leg_result["nrcc_messages"],
+                "operator_filter": self.operator_filter,
             }
 
             if self.all_departures:
@@ -962,7 +1002,9 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
                 leg,
                 raw,
                 next_leg_services=(
-                    data[i + 1].get("services") if i + 1 < len(data) else None
+                    self._filter_operators(data[i + 1].get("services", []))
+                    if i + 1 < len(data)
+                    else None
                 ),
             )
             for i, (leg, raw) in enumerate(zip(self.legs, data, strict=True))
@@ -1031,6 +1073,7 @@ class NationalRailDataUpdateCoordinator(DataUpdateCoordinator):
             "last_updated": dt_util.now().isoformat(),
             "next_update": (dt_util.now() + self.update_interval).isoformat(),
             "nrcc_messages": nrcc_messages,
+            "operator_filter": self.operator_filter,
         }
 
     def _collect_delay_info(self, services: list[dict[str, Any]]) -> dict[str, Any]:
